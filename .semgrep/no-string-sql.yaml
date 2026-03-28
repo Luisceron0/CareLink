@@ -1,0 +1,7 @@
+rules:
+  - id: no-string-sql
+    pattern: |-
+      String sql = "..." + $X;
+    message: "Detectada concatenación en query de SQL — usar parametrización"
+    languages: ["java"]
+    severity: ERROR

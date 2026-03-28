@@ -1,0 +1,8 @@
+rules:
+  - id: no-weak-crypto
+    patterns:
+      - pattern: md5($X)
+      - pattern: sha1($X)
+    message: "Evitar algoritmos cripto débiles (MD5, SHA1). Usar Argon2/AES/sha256 según contexto."
+    languages: ["python", "java"]
+    severity: ERROR
