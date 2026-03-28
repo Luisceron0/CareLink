@@ -1,0 +1,15 @@
+[project]
+name = "notification-service"
+version = "0.1.0"
+description = "FastAPI notification service for CareLink"
+requires-python = ">=3.12"
+
+[project.dependencies]
+fastapi = "^0.101"
+uvicorn = "^0.22"
+pydantic = "^2.5"
+pytest = {extras = [], version = "^7.0"}
+python-jose = "^3.3"
+
+[tool.ruff]
+line-length = 88

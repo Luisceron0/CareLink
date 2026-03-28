@@ -1,0 +1,14 @@
+rules:
+  - id: phi-audit-required
+    message: "Acceso a campos PHI debe registrar audit log"
+    languages: ["java", "python"]
+    severity: WARNING
+    patterns:
+      - pattern-inside: |
+          class $C {
+            ...
+            $RET $M($ARGS) {
+              ...
+              $PHI
+            }
+          }

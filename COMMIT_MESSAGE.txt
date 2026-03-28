@@ -1,0 +1,30 @@
+feat(identity): implement domain/application; add infra adapters; tests (F1-T01 done, F1-T02 in-progress)
+
+Summary:
+- Implement domain value objects and entities for Tenant, User, and Session under services/identity-service/domain.
+- Add `RegisterTenantUseCase` and unit tests under services/identity-service/application.
+- Implement infrastructure adapters: JPA entities, Spring Data repositories, JPA adapters, Postgres schema provisioner, SMTP notifier adapter, and Argon2 password encoder under services/identity-service/infrastructure.
+- Add migrations and tenant schema template under `migrations/`.
+- Create scaffolds for notification service and Next.js portals.
+- Update task tracking in `tasks/todo.md`.
+- Add (disabled by default) Testcontainers-based integration test for schema provisioning.
+
+Files (high-level):
+- services/identity-service/src/main/java/com/carelink/identity/domain/...
+- services/identity-service/src/main/java/com/carelink/identity/application/...
+- services/identity-service/src/main/java/com/carelink/identity/infrastructure/...
+- migrations/*
+- tasks/*
+- pom.xml (root + services/identity-service/pom.xml)
+
+Commands to run locally to create the commit:
+
+```bash
+git status --porcelain
+git add -A
+git commit -m "feat(identity): implement domain/application; add infra adapters; tests (F1-T01 done, F1-T02 in-progress)"
+git push origin main
+```
+
+Notes:
+- Attempt to run the commit from the agent failed due to a filesystem provider error in the execution environment. Run the commands above locally or in CI where `git` has access to the workspace. If you want, I can produce a patch file or retry committing once the environment allows filesystem operations.

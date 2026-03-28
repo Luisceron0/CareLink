@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pytest
+requests
+email-validator
+passlib[argon2]
+PyJWT
+SQLAlchemy
+alembic
