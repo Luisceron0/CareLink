@@ -7,4 +7,5 @@ import java.util.UUID;
 
 public interface SessionJpaRepository extends JpaRepository<SessionEntity, UUID> {
     Optional<SessionEntity> findByRefreshToken(String token);
+    java.util.List<SessionEntity> findByUserIdOrderByCreatedAtAsc(UUID userId);
 }

@@ -17,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class InMemoryUserRepoLogin implements UserRepository {
     private java.util.Map<String, User> map = new java.util.HashMap<>();
     @Override public Optional<User> findByEmail(String email) { return Optional.ofNullable(map.get(email)); }
+    @Override public Optional<User> findById(java.util.UUID id) { return map.values().stream().filter(u -> u.id().equals(id)).findFirst(); }
     @Override public void save(User user) { map.put(user.email().value(), user); }
 }
 
@@ -27,6 +28,11 @@ class InMemorySessionRepo implements SessionRepository {
     }
     @Override public void save(com.carelink.identity.domain.Session session) { map.put(session.id(), session); }
     @Override public void deleteById(UUID id) { map.remove(id); }
+    @Override public java.util.List<com.carelink.identity.domain.Session> findByUserId(UUID userId) {
+        return map.values().stream().filter(s -> s.userId().equals(userId))
+                .sorted(java.util.Comparator.comparing(com.carelink.identity.domain.Session::createdAt))
+                .collect(java.util.stream.Collectors.toList());
+    }
 }
 
 class InMemoryPasswordEncoderLogin implements PasswordEncoder {
