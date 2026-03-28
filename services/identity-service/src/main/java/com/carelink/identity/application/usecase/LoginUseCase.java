@@ -28,6 +28,14 @@ public class LoginUseCase {
             throw new RuntimeException("Invalid credentials");
         }
 
+        // Enforce concurrent session limit (evict oldest if needed)
+        int max = Integer.parseInt(System.getenv().getOrDefault("MAX_CONCURRENT_SESSIONS", "3"));
+        var sessions = sessionRepository.findByUserId(user.id());
+        while (sessions.size() >= max) {
+            var oldest = sessions.remove(0);
+            sessionRepository.deleteById(oldest.id());
+        }
+
         String refreshToken = UUID.randomUUID().toString();
         Session session = new Session(UUID.randomUUID(), user.id(), refreshToken, OffsetDateTime.now());
         sessionRepository.save(session);

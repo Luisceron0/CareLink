@@ -26,6 +26,7 @@ class InMemoryTenantRepo implements TenantRepository {
 class InMemoryUserRepo implements UserRepository {
     private java.util.Map<String, User> map = new java.util.HashMap<>();
     @Override public Optional<User> findByEmail(String email) { return Optional.ofNullable(map.get(email)); }
+    @Override public Optional<User> findById(java.util.UUID id) { return map.values().stream().filter(u -> u.id().equals(id)).findFirst(); }
     @Override public void save(User user) { map.put(user.email().value(), user); }
 }
 

@@ -24,7 +24,17 @@ public class PostgresSchemaProvisioner implements SchemaProvisioner {
             String schema = "tenant_" + tenantSlug;
             jdbcTemplate.execute("CREATE SCHEMA IF NOT EXISTS " + schema);
 
-            Resource resource = resourceLoader.getResource("file:./migrations/002_tenant_schema_template.sql");
+            Resource resource = resourceLoader.getResource("classpath:/migrations/002_tenant_schema_template.sql");
+            if (!resource.exists()) {
+                resource = resourceLoader.getResource("file:../migrations/002_tenant_schema_template.sql");
+            }
+            if (!resource.exists()) {
+                resource = resourceLoader.getResource("file:./migrations/002_tenant_schema_template.sql");
+            }
+            if (!resource.exists()) {
+                throw new RuntimeException("Migration template not found: migrations/002_tenant_schema_template.sql");
+            }
+
             String sql = new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
 
             // Prefix table creation with schema name

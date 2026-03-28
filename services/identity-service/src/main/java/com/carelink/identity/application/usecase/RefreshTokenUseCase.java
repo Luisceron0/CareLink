@@ -16,9 +16,11 @@ public class RefreshTokenUseCase {
         Session existing = sessionRepository.findByRefreshToken(refreshToken)
                 .orElseThrow(() -> new RuntimeException("Invalid refresh token"));
 
-        // Create a new session (simple rotation)
-        Session next = new Session(UUID.randomUUID(), existing.userId(), UUID.randomUUID().toString(), OffsetDateTime.now());
+        // Create a new session (rotation): issue new refresh token, persist, then delete old
+        String newRefresh = UUID.randomUUID().toString();
+        Session next = new Session(UUID.randomUUID(), existing.userId(), newRefresh, OffsetDateTime.now());
         sessionRepository.save(next);
+        sessionRepository.deleteById(existing.id());
         return next;
     }
 }
