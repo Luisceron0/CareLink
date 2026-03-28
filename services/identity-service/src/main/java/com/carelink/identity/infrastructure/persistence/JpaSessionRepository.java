@@ -7,6 +7,7 @@ import com.carelink.identity.infrastructure.persistence.jpa.SessionJpaRepository
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
+import java.util.UUID;
 
 @Repository
 public class JpaSessionRepository implements SessionRepository {
@@ -25,5 +26,10 @@ public class JpaSessionRepository implements SessionRepository {
     public void save(Session session) {
         SessionEntity entity = new SessionEntity(session.id(), session.userId(), session.refreshToken(), session.createdAt());
         jpa.save(entity);
+    }
+
+    @Override
+    public void deleteById(UUID id) {
+        jpa.deleteById(id);
     }
 }
