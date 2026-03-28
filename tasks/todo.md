@@ -8,6 +8,13 @@
 - [ ] Verificar estructura documental base (`docs/SRS.md`, `docs/API.md`, `docs/DATA_MODEL.md`, `docs/adr/`)
 - [ ] Definir siguiente tarea de desarrollo (MVP vertical slice)
 
+### Preparación para commit/infra
+- [x] Crear ADR-008 — Infra: Railway / Supabase / Upstash / Confluent (`docs/adr/ADR-008.md`)
+- [x] Añadir script `scripts/prepare_commit.sh` para preparar commit
+- [x] Actualizar `tasks/todo.md` con pasos de commit y ADR
+- [ ] Ejecutar tests y linters localmente antes de push
+- [ ] Ejecutar `scripts/prepare_commit.sh` y hacer `git push` (requiere credenciales)
+
 ## Revisión
 
 Pendiente al cierre de la sesión.
