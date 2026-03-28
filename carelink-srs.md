@@ -519,7 +519,7 @@ Before any code is written, the following threat model must exist in `THREAT_MOD
 |------------|----------|---------------------|--------------|
 | **A01** | Broken Access Control | Schema-per-tenant enforces isolation at DB level. Every API endpoint validates: (1) valid JWT, (2) tenant membership, (3) role permission, (4) resource ownership. SSRF: no user-supplied URLs are fetched server-side in MVP. | Test: cross-tenant patient access returns 403; cross-role clinical note access returns 403 |
 | **A02** | Security Misconfiguration | Security headers on all responses (CSP, HSTS, X-Frame-Options, X-Content-Type-Options). Secrets in environment variables only. Spring Boot Actuator endpoints disabled in production. Startup validation fails fast if required env vars missing. | OWASP ZAP scan on staging; Checkov on Terraform |
-| **A03** | Software Supply Chain | Trivy SCA on every PR. Dependabot for Java, Python, and Node.js. SBOM generated per release. All Docker base images pinned to SHA. | SBOM attached to every GitHub Release |
+| **A03** | Software Supply Chain | SCA via `mvn dependency-check` and `pip-audit` on every PR; Dependabot for Java, Python, and Node.js; SBOM generated per release. | SBOM attached to every GitHub Release |
 | **A04** | Cryptographic Failures | TLS 1.3 minimum on all endpoints. PHI columns encrypted at rest with AES-256 (application-level, not just disk). Passwords: Argon2id. JWT: RS256 (asymmetric). No MD5/SHA1 (enforced by Semgrep rule). | Semgrep custom rule; nmap TLS scan |
 | **A05** | Injection | Spring Data JPA (JPQL/criteria) — no native SQL string construction. FastAPI with Pydantic v2 validation. Input length limits on all fields. Semgrep rule banning string concatenation in query contexts. XSS: Next.js escapes by default; strict CSP. | Semgrep on every PR; SQLMap on staging API |
 | **A06** | Insecure Design | THREAT_MODEL.md written before first commit. Fail-secure: appointment booking error = slot stays available, not booked in unknown state. Principle of least privilege: each service DB user has only SELECT/INSERT/UPDATE on its own schema. | Threat model peer-reviewed before each milestone |
@@ -539,7 +539,7 @@ to a domain exception, and surfaced with alternative slots.
 **PHI at Rest:**
 Clinical notes, diagnoses, and prescriptions are encrypted at the application level before
 storage using AES-256-GCM. The encryption key is per-tenant, stored in a key management
-service (AWS KMS or equivalent), never in the database or application code.
+service (Supabase Vault or equivalent), never in the database or application code.
 
 **File Uploads:**
 Lab results and document attachments: magic bytes validation, MIME type verification,
@@ -570,22 +570,24 @@ confirm deletion after verifying the legal basis for or against it.
 | Styling | Tailwind CSS | 3.x | Rapid, consistent UI development |
 | Primary DB (per service) | PostgreSQL | 16.x | ACID, schema-per-tenant, pgcrypto for PHI encryption |
 | Session / Cache | Redis | 7.x | JWT refresh token store, slot availability cache |
-| File Storage | AWS S3 / MinIO | — | Document attachments, PHI export files |
+| File Storage | Supabase Storage / MinIO | — | Document attachments, PHI export files |
 | Schema Registry | Confluent Schema Registry | — | Avro schemas for Kafka message validation |
-| Key Management | AWS KMS | — | Per-tenant encryption keys for PHI at rest |
+| Key Management | Supabase Vault | — | Per-tenant encryption keys for PHI at rest |
 | Search | PostgreSQL FTS | — | Patient search within tenant (no Elasticsearch in MVP) |
 | Infrastructure | Terraform | 1.7x | IaC for all cloud resources |
-| CI/CD | GitHub Actions | — | PR checks: Semgrep, Trivy, tests, lint |
-| Containerization | Docker (CI/CD only) | — | Not used in local dev per constraint |
-| Monitoring | Prometheus + Grafana | — | Service metrics and alerting |
-| Tracing | OpenTelemetry + Jaeger | — | Distributed tracing across services |
-| Log Aggregation | Loki + Grafana | — | Structured log search |
-| Testing (Java) | JUnit 5 + Testcontainers + Mockito | — | Unit, integration, contract tests |
-| Testing (Python) | pytest + pytest-asyncio | — | Unit and integration tests |
+| CI/CD | GitHub Actions | — | Native runners — no Docker required |
+| Containerization | **None** | — | Docker not used in any environment |
+| Monitoring | Prometheus + Grafana Cloud | — | Service metrics and alerting |
+| Tracing | OpenTelemetry + Grafana Tempo | — | Distributed tracing, no Docker required |
+| Log Aggregation | Grafana Loki Cloud | — | Structured log search, managed |
+| Testing — Java unit | JUnit 5 + Mockito | — | Pure unit tests, no infrastructure |
+| Testing — Java integration DB | Zonky Embedded Database | — | Real PostgreSQL embedded, no Docker |
+| Testing — Java integration Kafka | spring-kafka-test @EmbeddedKafka | — | In-memory Kafka broker, no Docker |
+| Testing — Python | pytest + pytest-asyncio + WireMock | — | Unit + external API simulation |
 | Contract Testing | Pact | — | Consumer-driven contracts between services |
-| E2E Testing | Playwright | — | Critical user flows: booking, HCE creation, RIPS export |
-| Load Testing | k6 | — | Slot availability and booking endpoints |
-| Security Scanning | Semgrep + Trivy + OWASP ZAP | — | SAST, SCA, DAST in CI pipeline |
+| E2E Testing | Playwright | — | Critical user flows against staging |
+| Load Testing | k6 | — | Native binary, no Docker |
+| Security Scanning | Semgrep + pip-audit + OWASP ZAP | — | Native binaries in CI |
 | i18n | i18next (frontend) + custom backend messages | — | EN, ES from day one |
 
 ---
@@ -819,10 +821,14 @@ that would catch a regression.
 - Coverage target: 80% line coverage on domain and application layers
 - What is NOT unit tested: controllers, repositories, configuration classes
 
-**Integration Tests**
+**Integration Tests — Java (no Docker)**
 - Target: service + real database, service + Kafka
-- Tools: Testcontainers (spins up real PostgreSQL and Kafka in tests)
+- PostgreSQL: Zonky Embedded Database (`@AutoConfigureEmbeddedDatabase`) — real PostgreSQL
+  engine embedded in the test JVM, no Docker, works natively on Windows
+- Kafka: `@EmbeddedKafka` from `spring-kafka-test` — in-memory Kafka broker, no Docker
 - Key scenarios: optimistic lock conflict, PHI audit log insert, schema isolation
+- Trade-off (documented in ADR-007): Zonky does not replicate schema-per-tenant provisioning
+  exactly as in production. Mitigated by smoke test against real Supabase in staging.
 
 **Contract Tests**
 - Target: API contracts between services and between frontend and backend
@@ -862,7 +868,7 @@ Every PR must pass before merge:
 - All unit and integration tests pass
 - Pact contracts verified
 - Semgrep (SAST) — zero new issues at HIGH or CRITICAL
-- Trivy (SCA) — zero new CRITICAL vulnerabilities
+- SCA (mvn dependency-check / pip-audit) — zero new CRITICAL vulnerabilities
 - Gitleaks — zero secrets detected
 - Ruff (Python) + Checkstyle (Java) + ESLint (TypeScript) — zero violations
 - Coverage does not decrease from main branch baseline
@@ -924,55 +930,69 @@ and Kafka message headers. Jaeger UI for trace visualization.
 
 ### 15.1 Infrastructure
 
+**No Docker is used in any environment — local, CI, or production.**
+Services deploy as native JARs and Python processes via platform-as-a-service.
+
 | Component | Platform | Notes |
 |-----------|----------|-------|
-| Spring Boot services | AWS ECS Fargate | Auto-scaling, no server management |
-| FastAPI Notification | AWS ECS Fargate | Lightweight, async Kafka consumer |
+| Spring Boot services | Railway | Deploy from JAR via Nixpacks — auto-detects Maven, no Dockerfile |
+| FastAPI Notification | Railway | Deploy from `requirements.txt` — auto-detected, no Dockerfile |
 | Next.js Physician Portal | Vercel | Zero-config deployment, Edge CDN |
 | Next.js Patient Portal | Vercel | Separate app, separate deployment |
-| PostgreSQL | AWS RDS PostgreSQL 16 | Multi-AZ, automated backups |
-| Redis | AWS ElastiCache | Session store, availability cache |
-| Kafka | AWS MSK | Managed Kafka, 3-broker minimum |
-| File Storage | AWS S3 | SSE-KMS encryption per tenant |
-| Key Management | AWS KMS | Per-tenant PHI encryption keys |
-| DNS + CDN | CloudFront + Route 53 | TLS termination, WAF rules |
-| Secrets | AWS Secrets Manager | No secrets in environment variables |
-| IaC | Terraform | Full infrastructure as code |
-| Monitoring | Prometheus + Grafana Cloud | Metrics and dashboards |
-| Tracing | AWS X-Ray or self-hosted Jaeger | Distributed tracing |
+| PostgreSQL | Supabase | Managed PostgreSQL 16, schema-per-tenant via Supabase API |
+| Redis | Upstash | Serverless Redis, free tier for dev/staging, pay-per-use in prod |
+| Kafka | Confluent Cloud | Managed Kafka, free tier (10GB/month), KRaft mode — no Zookeeper |
+| File Storage | Supabase Storage | PHI files with per-tenant bucket policies, SSE enabled |
+| Key Management | Supabase Vault | Per-tenant encryption keys for PHI at rest |
+| DNS + CDN | Vercel Edge Network | TLS termination, global CDN |
+| Secrets | Railway + Vercel env vars | Never in code or `.env` committed to git |
+| IaC | Terraform | Provisions Supabase project, Confluent cluster, Upstash, Railway apps |
+| Monitoring | Grafana Cloud (free tier) | Prometheus metrics, Loki logs, Tempo traces |
+| Tracing | OpenTelemetry → Grafana Tempo | No self-hosted infrastructure required |
 
 ### 15.2 Environments
 
-| Environment | Purpose | Data Policy |
-|-------------|---------|-------------|
-| Local | Developer machines | Synthetic data only, never real PHI |
-| CI | Automated tests | Ephemeral Testcontainers, no persistence |
-| Staging | Pre-production validation | Anonymized snapshots, ZAP DAST runs here |
-| Production | Live system | Real PHI, full compliance requirements |
+| Environment | Purpose | Infrastructure | Data Policy |
+|-------------|---------|---------------|-------------|
+| Local | Developer machines | PostgreSQL native + Upstash Redis + Confluent Cloud free | Synthetic data only, never real PHI |
+| CI | Automated tests | Zonky embedded DB + @EmbeddedKafka — no external services | Ephemeral, no persistence |
+| Staging | Pre-production validation | Supabase + Upstash + Confluent (shared with dev) | Anonymized snapshots, ZAP DAST runs here |
+| Production | Live system | Supabase + Upstash + Confluent (dedicated projects) | Real PHI, full compliance |
 
-### 15.3 CI/CD Pipeline
+**Local setup (Windows) — no Docker required:**
+```
+PostgreSQL 16  → native installer: postgresql.org/download/windows
+Redis          → Upstash free tier (cloud) — no Windows binary available natively
+Kafka          → Confluent Cloud free tier — no local broker needed
+Java services  → ./mvnw spring-boot:run
+Python service → uvicorn app.main:app --reload --port 8084
+Next.js        → npm run dev
+```
+
+### 15.3 CI/CD Pipeline — No Docker
 
 ```
 PR opened →
-  1. Semgrep (SAST)          → fail on HIGH/CRITICAL
-  2. Trivy (SCA + SBOM)      → fail on CRITICAL
-  3. Gitleaks (secrets)      → fail on any finding
-  4. Unit tests              → fail on any failure
-  5. Integration tests       → fail on any failure
-  6. Pact contract verify    → fail if contracts broken
-  7. Coverage check          → fail if decreased
-  8. Lint (all languages)    → fail on any violation
-  9. Preview deployment      → Vercel preview for Next.js
- 10. OWASP ZAP (DAST)        → runs against preview URL
+  1. Semgrep (SAST)              → fail on HIGH/CRITICAL — native binary
+  2. pip-audit + cyclonedx-py    → SCA for Python deps — no Docker
+  3. mvn dependency-check        → SCA for Java deps — no Docker
+  4. Gitleaks                    → fail on any secret — native binary
+  5. Unit tests (Java + Python)  → fail on any failure
+  6. Integration tests Java      → Zonky embedded DB + @EmbeddedKafka — no Docker
+  7. Integration tests Python    → pytest + WireMock — no Docker
+  8. Pact contract verify        → fail if contracts broken
+  9. Coverage check              → fail if decreased from baseline
+ 10. Lint (Checkstyle + ruff + ESLint) → fail on any violation
+ 11. Vercel preview deployment   → Next.js preview URL generated automatically
+ 12. OWASP ZAP (DAST)           → runs against Vercel preview URL — native binary
 
 Merge to main →
-  11. All above +
-  12. Build Docker images (for ECS services)
-  13. Push to ECR
-  14. Deploy to Staging (ECS rolling update)
-  15. Smoke tests on Staging
-  16. Playwright E2E on Staging
-  17. Manual approval gate → Deploy to Production
+ 13. All above +
+ 14. Deploy Spring Boot JARs to Railway (staging) via Railway CLI
+ 15. Deploy FastAPI to Railway (staging)
+ 16. Smoke tests on staging (curl health endpoints)
+ 17. Playwright E2E on staging
+ 18. Manual approval gate → Deploy to production Railway + Vercel
 ```
 
 ---
@@ -1071,6 +1091,31 @@ create unnecessary network overhead and operational complexity.
 Scheduling, Clinical Records, Billing, and Notifications have genuinely different scaling
 profiles and team ownership boundaries.
 **Review trigger:** If any service grows beyond 50,000 lines of domain code, evaluate split.
+
+### ADR-007 — No Docker in Any Environment
+
+**Decision:** Zero Docker usage — local development, CI/CD, and production all use
+native processes and platform-as-a-service.
+**Context:** Docker causes performance degradation and service conflicts on the development
+machine, and the team policy prohibits its use across all environments.
+**Rationale:**
+- Local: PostgreSQL installed natively on Windows. Redis and Kafka via cloud free tiers
+  (Upstash, Confluent Cloud) — no local broker needed.
+- Testing: Zonky Embedded Database replaces Testcontainers for PostgreSQL integration tests.
+  `@EmbeddedKafka` replaces Testcontainers for Kafka integration tests. Both work natively
+  on Windows with no external dependencies.
+- CI/CD: GitHub Actions native runners with `setup-java` and `setup-python`. No image builds.
+  SCA via `pip-audit` and `mvn dependency-check` instead of Trivy (which requires Docker daemon).
+- Production: Railway deploys Spring Boot JARs and Python processes via Nixpacks (no Dockerfile
+  required). Vercel deploys Next.js. All managed services (Supabase, Upstash, Confluent Cloud).
+**Trade-offs:**
+- Zonky does not replicate schema-per-tenant provisioning exactly as in production.
+  Mitigated by a smoke test in staging (real Supabase) that validates schema provisioning
+  on every merge to main.
+- Confluent Cloud free tier (10GB/month) may require upgrade for high-volume staging tests.
+- Railway free tier has sleep-on-idle behavior — upgrade required before production launch.
+**Review trigger:** If the team adopts Docker in the future, Testcontainers replaces
+Zonky + @EmbeddedKafka and a container orchestration platform (e.g., ECS) replaces Railway.
 
 ---
 

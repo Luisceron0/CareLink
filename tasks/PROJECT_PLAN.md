@@ -33,7 +33,7 @@ Para cada tarea, Copilot debe:
 | Fase | Nombre | Estado | Checkpoint |
 |------|--------|--------|-----------|
 | 0 | Fundación del repositorio | `[ ] Pendiente` | — |
-| 1 | Registro de tenant y autenticación | `[ ] Pendiente` | Requiere revisión |
+| 1 | Registro de tenant y autenticación | `[EN PROGRESO]` | Requiere revisión |
 | 2 | Gestión de disponibilidad médica | `[ ] Pendiente` | Requiere revisión |
 | 3 | Reserva de cita completa | `[ ] Pendiente` | Requiere revisión |
 | 4 | Historia clínica electrónica | `[ ] Pendiente` | Requiere revisión |
@@ -66,10 +66,12 @@ esquema de BD inicial, variables de entorno. Sin lógica de negocio todavía.
 - [ ] Configurar Spring Boot 3.3 + Java 21 en cada servicio
 - [ ] Configurar Checkstyle con reglas de estilo del proyecto
 - [ ] Configurar Spring Security base (sin reglas aún)
-- [ ] Configurar Testcontainers en cada servicio (PostgreSQL + Kafka)
-- [ ] Verificar: `./mvnw test` pasa en los 4 servicios
+- [ ] Agregar Zonky Embedded Database (`io.zonky.test:embedded-database-spring-test`)
+  en scope test — reemplaza Testcontainers para PostgreSQL
+- [ ] Agregar `spring-kafka-test` con `@EmbeddedKafka` — reemplaza Testcontainers para Kafka
+- [ ] Verificar: `./mvnw test` pasa en los 4 servicios sin Docker ni servicios externos
 
-**Commit:** `chore(java): Configure Spring Boot services with Testcontainers`
+**Commit:** `chore(java): Configure Spring Boot services with Zonky and EmbeddedKafka`
 
 ### F0-T03 — Configuración de Notification Service (Python)
 - [ ] Crear `pyproject.toml` con FastAPI, Pydantic v2, pytest, ruff, mypy
@@ -99,17 +101,19 @@ esquema de BD inicial, variables de entorno. Sin lógica de negocio todavía.
 **Commit:** `feat(db): Add initial schema migrations and tenant template`
 
 ### F0-T06 — Pipeline CI/CD base
-- [ ] Crear `.github/workflows/ci.yml` con: Semgrep, Trivy, Gitleaks, tests Java,
-  tests Python, lint Next.js
+- [ ] Crear `.github/workflows/ci.yml` con runners nativos (sin Docker):
+  - `actions/setup-java@v4` para servicios Java
+  - `actions/setup-python@v5` para Notification Service
+  - Semgrep (binario nativo), pip-audit, mvn dependency-check, Gitleaks
+  - Tests Java con Zonky + @EmbeddedKafka (sin servicios externos)
+  - Tests Python con pytest
+  - ESLint para Next.js
 - [ ] Crear `.semgrep/no-weak-crypto.yaml` — bloquea MD5, SHA1
 - [ ] Crear `.semgrep/no-string-sql.yaml` — bloquea concatenación en queries
-- [ ] Crear `.semgrep/phi-audit-required.yaml` — detecta acceso a campos PHI sin audit log
-- [ ] Verificar: pipeline pasa en un PR de prueba
+- [ ] Crear `.semgrep/phi-audit-required.yaml` — detecta acceso PHI sin audit log
+- [ ] Verificar: pipeline pasa en un PR de prueba sin Docker
 
-**Commit:** `ci: Add base pipeline with Semgrep, Trivy, Gitleaks`
-
-## CHECKPOINT: Fase 0 completada
-
+**Commit:** `ci: Add base pipeline with native runners, no Docker`
 
 ---
 
@@ -121,7 +125,11 @@ porque todo lo demás depende de él.
 **Checkpoint:** requiere revisión humana al completar.
 **Servicios:** `identity-service` + `physician-portal` (páginas de auth)
 
-### F1-T01 — Dominio de Identity (capas domain/ y application/)
+### F1-T01 — Dominio de Identity (capas domain/ y application/) `[EN PROGRESO]`
+> Protocolo Obligatorio ejecutado y aprobado — Copilot puede proceder sin confirmación adicional.
+> Threat model actualizado: vector de provisión de schema y validación de tax_id documentados.
+> ADR-007 añadido a THREAT_MODEL.md requerido al completar esta tarea.
+
 - [ ] Crear entidades de dominio: `Tenant`, `User`, `Session` como Java records
 - [ ] Crear value objects: `Email`, `TaxId`, `TenantSlug`, `HashedPassword`
 - [ ] Crear puertos (interfaces): `TenantRepository`, `UserRepository`,
@@ -131,6 +139,7 @@ porque todo lo demás depende de él.
 - [ ] Crear excepciones de dominio: `TenantAlreadyExistsException`,
   `InvalidTaxIdException`, `EmailNotVerifiedException`, `AccountLockedException`
 - [ ] Verificar: 100% de cobertura en domain/ con tests unitarios puros (sin Spring)
+- [ ] Actualizar `THREAT_MODEL.md` con vector de provisión de schema y validación de tax_id
 
 **Commit:** `feat(identity): Add tenant and user domain model with ports`
 
@@ -141,7 +150,8 @@ porque todo lo demás depende de él.
   ejecutando el template de `migrations/002_tenant_schema_template.sql`
 - [ ] Implementar `SmtpEmailNotifier` para email de verificación
 - [ ] Implementar `Argon2PasswordEncoder` (argon2-cffi wrapper)
-- [ ] Test de integración con Testcontainers: provisión de schema real en PostgreSQL
+- [ ] Test de integración con Zonky Embedded Database: provisión de schema real en PostgreSQL
+  sin Docker — usa `@AutoConfigureEmbeddedDatabase(provider = DatabaseProvider.ZONKY)`
 
 **Commit:** `feat(identity): Add infrastructure adapters for tenant provisioning`
 
@@ -283,8 +293,8 @@ con resolución de conflictos y cambio de estado completo.
 - [ ] Agregar constraint único en BD: `(physician_id, slot_start) WHERE status = BOOKED`
 - [ ] Implementar manejo de `ObjectOptimisticLockingFailureException` →
   captura, busca 3 alternativas, lanza `SlotAlreadyBookedException`
-- [ ] Test de concurrencia con Testcontainers: 10 threads intentando reservar el mismo
-  slot → exactamente 1 éxito, 9 `SlotAlreadyBookedException`
+- [ ] Test de concurrencia con @EmbeddedKafka + Zonky: 10 threads intentando reservar el mismo
+  slot → exactamente 1 éxito, 9 `SlotAlreadyBookedException` — sin Docker
 - [ ] Crear `docs/adr/ADR-004.md` — optimistic locking vs. pessimistic locking
 
 **Commit:** `feat(scheduling): Add optimistic locking with conflict resolution`
@@ -339,9 +349,9 @@ Los registros son inmutables después de firmados. PHI cifrado en reposo.
 
 **Commit:** `feat(clinical): Add patient and encounter domain with immutability rules`
 
-### F4-T02 — Cifrado PHI y audit log
-- [ ] Implementar `KmsEncryptionAdapter` — cifra/descifra con AES-256-GCM usando
-  clave por tenant desde AWS KMS (o simulado en local con clave de entorno)
+-### F4-T02 — Cifrado PHI y audit log
+- [ ] Implementar `VaultEncryptionAdapter` — cifra/descifra con AES-256-GCM usando
+-  clave por tenant almacenada en Supabase Vault (o simulado en local con clave de entorno)
 - [ ] Aplicar cifrado en campos PHI de `Patient`: `fullName`, `phone`, `email`,
   `emergencyContact`
 - [ ] Aplicar cifrado en campos clínicos de `Encounter`: `chiefComplaint`,
@@ -569,14 +579,19 @@ está como código y el pipeline CI/CD es completo.
 
 **Commit:** `feat(observability): Add OpenTelemetry, Prometheus and Grafana dashboards`
 
-### F9-T02 — Infraestructura Terraform
-- [ ] Crear módulos Terraform: VPC, RDS, ElastiCache, MSK, ECS, S3, KMS
-- [ ] Crear módulo para provisión de tenant (KMS key por tenant)
-- [ ] Crear workspaces: `staging` y `production`
-- [ ] Checkov pasa en todo el código Terraform sin findings HIGH/CRITICAL
-- [ ] Documentar en `docs/INFRASTRUCTURE.md` el diagrama de red
+### F9-T02 — Infraestructura e IaC
+- [ ] Crear módulos / scripts de IaC para los proveedores escogidos:
+  - Supabase: provisión de proyecto, bases de datos (schema-per-tenant) y Vault
+  - Confluent Cloud: proyectos, topics y credenciales
+  - Upstash: configuración de Redis serverless (documentar secretos y endpoints)
+  - Railway: despliegue de servicios (documentar variables de entorno y despliegue vía Nixpacks)
+  - Storage: provisión de almacenamiento compatible (ej. Supabase Storage) si aplica
+- [ ] Crear módulo para provisión de tenant (secret Vault por tenant en Supabase)
+- [ ] Crear workspaces/entornos: `staging` y `production` (IaC donde aplique)
+- [ ] Checkov / herramientas de análisis de IaC pasan sin findings HIGH/CRITICAL
+- [ ] Documentar en `docs/INFRASTRUCTURE.md` el diagrama de red y la topología de servicios
 
-**Commit:** `infra: Add Terraform modules for full AWS infrastructure`
+**Commit:** `infra: Add IaC modules for Supabase, Confluent Cloud, Upstash and Railway`
 
 ### F9-T03 — Pipeline CI/CD completo
 - [ ] Completar `.github/workflows/ci.yml` con todos los checks definidos en F0-T06
@@ -594,7 +609,7 @@ está como código y el pipeline CI/CD es completo.
 - [ ] Completar `SECURITY.md` con evidencia de tests para cada ítem OWASP 2025
 - [ ] Completar `THREAT_MODEL.md` con todas las amenazas identificadas durante el desarrollo
 - [ ] Crear `docs/SETUP.md` — guía paso a paso para levantar el proyecto localmente
-- [ ] Crear `docs/DEPLOYMENT.md` — guía de despliegue en AWS con Terraform
+- [ ] Crear `docs/DEPLOYMENT.md` — guía de despliegue con Railway, Supabase, Confluent Cloud y Terraform/providers donde aplique
 - [ ] Crear `docs/AUTONOMY_GUIDE.md` — guía en lenguaje no técnico para que el
   administrador de la clínica opere el sistema (valor ElevaForge)
 
@@ -614,6 +629,7 @@ está como código y el pipeline CI/CD es completo.
 | ADR-004 | Optimistic locking vs pessimistic locking | Pendiente | F3-T02 |
 | ADR-005 | Cifrado PHI a nivel de aplicación vs. solo disco | Pendiente | F4-T02 |
 | ADR-006 | GDPR erasure vs. retención 15 años MinSalud | Pendiente | F4-T05 |
+| ADR-007 | Sin Docker: Zonky + EmbeddedKafka + Railway + Supabase | Pendiente | F0-T02 |
 
 Toda decisión nueva no prevista aquí debe generar un ADR antes de implementarse.
 
@@ -626,7 +642,7 @@ Toda decisión nueva no prevista aquí debe generar un ADR antes de implementars
 | Cobertura domain/ | 100% | Cada fase |
 | Cobertura application/ | 80% | Cada fase |
 | Semgrep findings HIGH/CRITICAL | 0 | CI en cada PR |
-| Trivy CRITICAL | 0 | CI en cada PR |
+| SCA (mvn dependency-check / pip-audit) CRITICAL | 0 | CI en cada PR |
 | Slot query p95 | < 300ms | F9-T03 |
 | Booking p95 | < 500ms | F9-T03 |
 | Lighthouse Patient Portal | ≥ 90 | F7-T02 |

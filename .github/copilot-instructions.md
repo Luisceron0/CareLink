@@ -11,7 +11,7 @@ Stack:
 - Notification Service: Python 3.12 + FastAPI
 - Physician Portal / Patient Portal: Node 20 + Next.js 14 App Router + TypeScript
 - PostgreSQL 16 (schema-per-tenant) · Redis 7 · Kafka 3.7
-- Infraestructura: Terraform + AWS (ECS Fargate, RDS, ElastiCache, MSK)
+- Infraestructura: Railway (despliegue de servicios), Supabase (Postgres + Vault), Upstash (Redis), Confluent Cloud (Kafka)
 
 Estructura de servicios:
 ```
@@ -98,7 +98,7 @@ Amenazas identificadas (formato: Amenaza → Mitigación):
 Si el feature toca PHI, añade:
 ```
 Datos PHI involucrados   : [lista de campos]
-Cifrado en reposo        : [AES-256-GCM con clave KMS por tenant]
+Cifrado en reposo        : [AES-256-GCM con clave por tenant almacenada en Supabase Vault]
 Audit log requerido      : [SÍ — acción y campos a registrar]
 Derecho de portabilidad  : [aplica exportación FHIR / PDF]
 ```
@@ -180,7 +180,7 @@ DEPENDENCIAS (OWASP A03)
 CRIPTOGRAFÍA (OWASP A04)
 [ ] Contraseñas: Argon2id — nunca MD5, SHA1, SHA256 sin salt
 [ ] JWT: RS256 — nunca HS256 con secreto compartido
-[ ] PHI en reposo: AES-256-GCM con clave KMS por tenant
+[ ] PHI en reposo: AES-256-GCM con clave por tenant almacenada en Supabase Vault
 
 INYECCIÓN (OWASP A05)
 [ ] Toda entrada validada con Pydantic (Python) o Bean Validation (Java)
@@ -222,10 +222,13 @@ PHI (adicional — Ley 1581 / HIPAA / GDPR)
 
 **Spring Boot (desde el directorio del servicio):**
 ```bash
-./mvnw test
+./mvnw test                    # Zonky + @EmbeddedKafka — sin Docker
 ./mvnw checkstyle:check
 ./mvnw spring-boot:run
 ```
+
+> Tests de integración usan Zonky Embedded Database para PostgreSQL
+> y @EmbeddedKafka para Kafka. No se necesita Docker ni servicios externos.
 
 **Python — notification-service:**
 ```bash
@@ -336,7 +339,7 @@ if (encounter.getSignedAt() != null) {
 ### PHI en reposo — cifrar antes de persistir (OWASP A04)
 
 ```java
-// SECURITY: PHI encrypted with AES-256-GCM, per-tenant KMS key (OWASP A04)
+// SECURITY: PHI encrypted with AES-256-GCM, per-tenant Supabase Vault key (OWASP A04)
 patient.setFullName(encryptionService.encrypt(dto.getFullName(), tenantKey));
 patient.setPhone(encryptionService.encrypt(dto.getPhone(), tenantKey));
 ```
