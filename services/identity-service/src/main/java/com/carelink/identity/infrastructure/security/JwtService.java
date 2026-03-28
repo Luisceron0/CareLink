@@ -2,15 +2,18 @@ package com.carelink.identity.infrastructure.security;
 
 import com.carelink.identity.domain.port.JwtKeyProvider;
 import com.nimbusds.jose.*;
-import com.nimbusds.jose.crypto.RSASSASigner;
-import com.nimbusds.jose.crypto.RSASSAVerifier;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import com.nimbusds.jose.util.Base64URL;
+import com.nimbusds.jose.crypto.RSASSAVerifier;
 import org.springframework.stereotype.Component;
 
+import java.security.Signature;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
+import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.Optional;
 import java.util.UUID;
 
 @Component
@@ -26,7 +29,6 @@ public class JwtService {
 
     public String generateAccessToken(UUID userId, UUID tenantId, String role) {
         try {
-            RSAPrivateKey signingKey = keyProvider.getPrivateKey().orElseThrow(() -> new RuntimeException("No private key available for signing"));
             String kid = keyProvider.getDefaultKid().orElse(null);
 
             Date now = new Date();
@@ -45,11 +47,31 @@ public class JwtService {
             if (kid != null) headerBuilder.keyID(kid);
             JWSHeader header = headerBuilder.build();
 
-            SignedJWT signedJWT = new SignedJWT(header, claims.build());
-            JWSSigner signer = new RSASSASigner(signingKey);
-            signedJWT.sign(signer);
-            return signedJWT.serialize();
-        } catch (JOSEException e) {
+            // Build signing input (base64url(header) + "." + base64url(payload))
+            SignedJWT unsigned = new SignedJWT(header, claims.build());
+            String headerJson = unsigned.getHeader().toJSONObject().toString();
+            String payloadJson = unsigned.getJWTClaimsSet().toJSONObject().toString();
+            String headerB64 = Base64URL.encode(headerJson.getBytes(StandardCharsets.UTF_8)).toString();
+            String payloadB64 = Base64URL.encode(payloadJson.getBytes(StandardCharsets.UTF_8)).toString();
+            String signingInput = headerB64 + "." + payloadB64;
+
+            // Prefer provider-side signing (KMS) if available
+            Optional<byte[]> remoteSig = keyProvider.sign(signingInput.getBytes(StandardCharsets.US_ASCII), kid);
+            byte[] signatureBytes;
+            if (remoteSig.isPresent()) {
+                signatureBytes = remoteSig.get();
+            } else {
+                // Fallback: sign locally with private key
+                RSAPrivateKey signingKey = keyProvider.getPrivateKey().orElseThrow(() -> new RuntimeException("No private key available for signing"));
+                Signature sig = Signature.getInstance("SHA256withRSA");
+                sig.initSign(signingKey);
+                sig.update(signingInput.getBytes(StandardCharsets.US_ASCII));
+                signatureBytes = sig.sign();
+            }
+
+            String signatureB64 = Base64URL.encode(signatureBytes).toString();
+            return signingInput + "." + signatureB64;
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }

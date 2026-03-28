@@ -83,4 +83,10 @@ public class JwksKeyProvider implements JwtKeyProvider {
 
     @Override
     public Optional<String> getDefaultKid() { return Optional.empty(); }
+
+    @Override
+    public Optional<byte[]> sign(byte[] signingInput, String kid) {
+        // JWKS provider holds only public keys; cannot sign.
+        return Optional.empty();
+    }
 }

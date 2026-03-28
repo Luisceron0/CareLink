@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.net.URL;
 import java.security.KeyFactory;
 import java.security.MessageDigest;
+import java.security.Signature;
 import java.security.interfaces.RSAPrivateCrtKey;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
@@ -106,5 +107,19 @@ public class VaultKeyProvider implements JwtKeyProvider {
     @Override
     public Optional<String> getDefaultKid() {
         return Optional.ofNullable(kid);
+    }
+
+    @Override
+    public Optional<byte[]> sign(byte[] signingInput, String kid) {
+        try {
+            if (this.privateKey == null) return Optional.empty();
+            if (kid != null && this.kid != null && !this.kid.equals(kid)) return Optional.empty();
+            Signature sig = Signature.getInstance("SHA256withRSA");
+            sig.initSign(privateKey);
+            sig.update(signingInput);
+            return Optional.of(sig.sign());
+        } catch (Exception e) {
+            throw new RuntimeException("Signing failed", e);
+        }
     }
 }

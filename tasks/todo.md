@@ -35,6 +35,21 @@ Pendiente al cierre de la sesión.
 - [ ] Añadir tests para tenant register y ejecutar
 - [ ] Ejecutar linter (`ruff`) y typecheck (`mypy`) y corregir warnings
 
+## Identity service — JWT & Vault work (actualizado)
+
+- [x] Añadir `JwtKeyProvider` en `domain/port`
+- [x] Implementar `StaticKeyProvider` (dev)
+- [x] Implementar `JwksKeyProvider` (JWKS fetch + cache + TTL)
+- [x] Refactorizar `JwtService` para `kid` y uso de `JwtKeyProvider`
+- [x] Implementar refresh-token rotation + hashed storage
+- [x] Implementar `VaultKeyProvider` y wiring por profile (prod)
+- [x] Añadir tests unitarios e integración para JWKS y VaultKeyProvider
+- [x] Actualizar `.env.example` con variables Vault/JWKS
+- [x] Actualizar `docs/THREAT_MODEL.md` y crear ADR `ADR-00X-jwt-management.md`
+ - [x] Actualizar `.env.example` con variables Vault/JWKS
+ - [x] Actualizar `docs/THREAT_MODEL.md` y crear ADR `ADR-00X-jwt-management.md`
+ - [x] Configurar CI job para `identity-service` (sin Docker)
+
 ## FASE 0 — Fundación (ejecutada)
 
 Fase 0 completada (archivos y scaffolds iniciales creados). Pendientes de verificación automática:

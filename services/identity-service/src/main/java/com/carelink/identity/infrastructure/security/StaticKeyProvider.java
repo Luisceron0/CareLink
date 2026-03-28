@@ -7,6 +7,7 @@ import com.nimbusds.jose.jwk.RSAKey;
 
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
+import java.security.Signature;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -43,5 +44,19 @@ public class StaticKeyProvider implements JwtKeyProvider {
     @Override
     public Optional<String> getDefaultKid() {
         return Optional.ofNullable(kid);
+    }
+
+    @Override
+    public Optional<byte[]> sign(byte[] signingInput, String kid) {
+        try {
+            if (this.privateKey == null) return Optional.empty();
+            if (kid != null && this.kid != null && !this.kid.equals(kid)) return Optional.empty();
+            Signature sig = Signature.getInstance("SHA256withRSA");
+            sig.initSign(privateKey);
+            sig.update(signingInput);
+            return Optional.of(sig.sign());
+        } catch (Exception e) {
+            throw new RuntimeException("Signing failed", e);
+        }
     }
 }
