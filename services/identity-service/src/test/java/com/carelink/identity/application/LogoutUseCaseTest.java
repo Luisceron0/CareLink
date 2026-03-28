@@ -13,6 +13,7 @@ class InMemorySessionRepoLogout implements com.carelink.identity.domain.port.Ses
     @Override public java.util.Optional<Session> findByRefreshToken(String token) { return map.values().stream().filter(s -> s.refreshToken().equals(token)).findFirst(); }
     @Override public void save(Session session) { map.put(session.id(), session); }
     @Override public void deleteById(UUID id) { map.remove(id); }
+    @Override public java.util.List<Session> findByUserId(UUID userId) { return map.values().stream().filter(s -> s.userId().equals(userId)).sorted(java.util.Comparator.comparing(Session::createdAt)).collect(java.util.stream.Collectors.toList()); }
 }
 
 public class LogoutUseCaseTest {

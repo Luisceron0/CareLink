@@ -8,6 +8,7 @@ import com.carelink.identity.infrastructure.persistence.jpa.UserJpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
+import java.util.UUID;
 
 @Repository
 public class JpaUserRepository implements UserRepository {
@@ -20,6 +21,11 @@ public class JpaUserRepository implements UserRepository {
     @Override
     public Optional<User> findByEmail(String email) {
         return jpa.findByEmail(email).map(e -> new User(e.getId(), e.getTenantId(), new Email(e.getEmail()), e.getRole(), new com.carelink.identity.domain.value.HashedPassword(e.getPassword()), e.getCreatedAt()));
+    }
+
+    @Override
+    public Optional<User> findById(UUID id) {
+        return jpa.findById(id).map(e -> new User(e.getId(), e.getTenantId(), new Email(e.getEmail()), e.getRole(), new com.carelink.identity.domain.value.HashedPassword(e.getPassword()), e.getCreatedAt()));
     }
 
     @Override
