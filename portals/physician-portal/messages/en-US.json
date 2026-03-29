@@ -1,0 +1,11 @@
+{
+  "schedule.title": "Physician Schedule",
+  "schedule.empty": "No availability blocks.",
+  "schedule.create.title": "Create availability block",
+  "form.day.label": "Day of week",
+  "form.start.label": "Start time",
+  "form.end.label": "End time",
+  "form.submit": "Create",
+  "feedback.created": "Block created successfully.",
+  "error.generic": "An error occurred. Please try again later."
+}

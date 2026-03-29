@@ -50,6 +50,13 @@ Pendiente al cierre de la sesión.
  - [x] Actualizar `docs/THREAT_MODEL.md` y crear ADR `ADR-00X-jwt-management.md`
  - [x] Configurar CI job para `identity-service` (sin Docker)
 
+## FASE 2 — Disponibilidad médica (plan en curso)
+
+- [ ] F2-T01 — Dominio de Scheduling: crear entidades `Physician`, `AvailabilityBlock`, `BlockedPeriod`, `TimeSlot` y value objects (`SlotDuration`, `WorkingHours`, `DateRange`) en `services/scheduling-service/src/main/java` — en progreso
+- [ ] F2-T02 — Infraestructura y API: `JpaPhysicianRepository`, `JpaAvailabilityRepository`, endpoints para `physicians` y `slots` — pendiente
+- [ ] F2-T03 — UI: páginas del portal para agenda semanal y configuración — pendiente
+
+
 ## FASE 0 — Fundación (ejecutada)
 
 Fase 0 completada (archivos y scaffolds iniciales creados). Pendientes de verificación automática:

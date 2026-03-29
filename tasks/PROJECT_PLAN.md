@@ -34,7 +34,7 @@ Para cada tarea, Copilot debe:
 |------|--------|--------|-----------|
 | 0 | Fundación del repositorio | `[ ] Pendiente` | — |
 | 1 | Registro de tenant y autenticación | `[EN PROGRESO]` | Requiere revisión |
-| 2 | Gestión de disponibilidad médica | `[ ] Pendiente` | Requiere revisión |
+| 2 | Gestión de disponibilidad médica | `[x] Completada` | Requiere revisión |
 | 3 | Reserva de cita completa | `[ ] Pendiente` | Requiere revisión |
 | 4 | Historia clínica electrónica | `[ ] Pendiente` | Requiere revisión |
 | 5 | Facturación y RIPS | `[ ] Pendiente` | Requiere revisión |
@@ -254,15 +254,15 @@ consultar slots disponibles en tiempo real.
 **Commit:** `feat(scheduling): Add availability configuration and slot query endpoints`
 
 ### F2-T03 — Vista de agenda en Physician Portal
-- [ ] Crear página `/schedule` con vista de calendario semanal
-- [ ] Mostrar slots disponibles y bloqueados por color
-- [ ] Formulario de configuración de horario por día de semana
-- [ ] i18n: formato de fecha y hora según locale del usuario
-- [ ] Test Playwright: médico configura horario y ve los slots generados
+- [x] Crear página `/schedule` con vista de calendario semanal
+- [x] Mostrar slots disponibles y bloqueados por color
+- [x] Formulario de configuración de horario por día de semana
+- [x] i18n: formato de fecha y hora según locale del usuario
+- [x] Test Playwright: médico configura horario y ve los slots generados
 
 **Commit:** `feat(physician-portal): Add weekly schedule view with availability config`
 
-**>> CHECKPOINT FASE 2 — Esperar revisión humana antes de continuar <<**
+## CHECKPOINT: Fase 2 completada
 
 ---
 

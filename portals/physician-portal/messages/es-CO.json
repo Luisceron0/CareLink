@@ -1,0 +1,11 @@
+{
+  "schedule.title": "Agenda del médico",
+  "schedule.empty": "No hay bloques de disponibilidad.",
+  "schedule.create.title": "Crear bloque de disponibilidad",
+  "form.day.label": "Día de la semana",
+  "form.start.label": "Hora inicio",
+  "form.end.label": "Hora fin",
+  "form.submit": "Crear",
+  "feedback.created": "Bloque creado correctamente.",
+  "error.generic": "Ocurrió un error. Intenta de nuevo más tarde."
+}

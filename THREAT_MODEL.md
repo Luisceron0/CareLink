@@ -36,3 +36,25 @@ Operaciones y requisitos de despliegue:
 - Implementar adaptador `VaultKeyProvider` que lea la clave privada directamente desde Vault para producción.
 - Añadir alertas en monitoring si la lista de `kid` cambia inesperadamente o si verificaciones fallan masivamente.
 
+---
+
+Scheduling / Availability (nueva superficie)
+
+Superficie de ataque nueva:
+- Endpoints de disponibilidad: `POST /api/v1/physicians/{id}/availability`, `GET /api/v1/physicians/{id}/availability` (public para tenants autenticados)
+- Inputs: `tenant_id`, `physician_id`, `day`, `start_time`, `end_time`
+
+Amenazas y mitigaciones:
+- Acceso cross-tenant → Mitigación: validar `tenant_id` extraído del JWT en la capa de aplicación (`AvailabilityService`) antes de cualquier llamada a repositorios; tests automáticos que prueban acceso cross-tenant -> 403/401.
+- Falsificación/escrow de disponibilidad (usuario crea bloques para otro doctor) → Mitigación: ownership enforced en `AvailabilityService` y en queries JPA (`findByIdAndTenantId`), validación adicional en controladores y pruebas.
+- Condiciones de carrera / double-booking → Mitigación: usar transacciones y optimistic locking en entidades críticas (añadir `@Version` si es necesario para `TimeSlot`/`Appointment`), aplicar verificación de conflictos en `SlotCalculator`/caso de uso y pruebas de concurrencia con zonky embedded DB.
+- Input malformed / timezone bugs → Mitigación: validar formatos y rangos (Bean Validation), normalizar zonas horarias en server (UTC) y documentar en API.
+- DoS en endpoints de escritura (spam de creación de bloques) → Mitigación: rate limiting por tenant/user e instrumentación de métricas y alertas para picos.
+- Tampering de datos en transporte → Mitigación: exigir HTTPS y validar JWTs firmados con RS256; asegurar cabeceras CORS apropiadas.
+
+Operaciones y requisitos de despliegue:
+- Añadir pruebas de integración con `@AutoConfigureEmbeddedDatabase(provider = DatabaseProvider.ZONKY)` para validar comportamiento real de Postgres sin Docker.
+- Asegurar que los adaptadores JPA estén en `infrastructure/persistence/` y que el `AvailabilityService` no importe infraestructura.
+- Auditoría: registrar cambios de disponibilidad (create/update/delete) con trace_id, tenant_id (hashed) y user_id (hashed); los logs no deben contener PHI.
+
+
