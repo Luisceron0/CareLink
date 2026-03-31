@@ -19,6 +19,56 @@
 
 Pendiente al cierre de la sesión.
 
+## FASE 3 — Reserva de cita (avance actual)
+
+- [x] F3-T01 — Dominio base de Appointment
+- [x] F3-T02 — Entidad JPA `Appointment` con `@Version`
+- [x] F3-T02 — Migración SQL con `version` + índice único parcial por slot activo
+- [x] F3-T02 — Manejo de conflicto en alta concurrencia (`DataIntegrityViolationException` / optimistic locking)
+- [x] F3-T02 — Test de concurrencia 10 threads (1 éxito, 9 conflicto)
+- [x] F3-T03 — Endpoints `POST/GET/PATCH/DELETE /api/v1/appointments`
+- [x] F3-T03 — Publicador de eventos Kafka (`appointments`)
+- [x] F3-T04 — UI base `/appointments/new` y `/appointments` (polling 30s)
+- [x] F3-T04 — Modal de conflicto con 3 alternativas en `/appointments/new`
+- [ ] F3 — Ejecutar verificación local `checkstyle`, `test`, `npm lint`, `npm type-check`
+- [ ] F3-T02 — ADR-004 (optimistic vs pessimistic locking)
+
+## FASE 4 — Historia clínica (avance actual)
+
+- [x] F4-T01 — Entidades de dominio (`Patient`, `Encounter`, `Prescription`, `Allergy`, `ActiveMedication`)
+- [x] F4-T01 — Value objects (`DocumentId`, `ICD10Code`, `BloodType`)
+- [x] F4-T01 — Puertos (`PatientRepository`, `EncounterRepository`, `AuditLogPort`, `EncryptionPort`, `FhirExporter`)
+- [x] F4-T01 — Eventos (`EncounterSigned`, `PatientRegistered`)
+- [x] F4-T01 — Casos de uso base (`RegisterPatientUseCase`, `SignEncounterUseCase`, `EvaluatePrescriptionUseCase`)
+- [x] F4-T01 — Tests unitarios base de inmutabilidad y advertencias de alergia
+- [x] F4-T01 — Ejecutar validación local de `clinical-service` (`checkstyle` + `test`)
+- [x] F4-T02 — Implementar `VaultEncryptionAdapter` (AES-256-GCM por tenant)
+- [x] F4-T02 — Aplicar cifrado PHI en `Patient` y `Encounter` desde casos de uso
+- [x] F4-T02 — Implementar `PhiAuditLogAdapter` insert-only
+- [x] F4-T02 — Configurar `phi_audit_log` + REVOKE UPDATE/DELETE en migración tenant
+- [x] F4-T02 — Test: lectura de paciente genera una entrada de auditoría
+- [x] F4-T02 — Test: DELETE en `phi_audit_log` rechazado por permisos de BD
+- [x] F4-T02 — Crear ADR-005 (cifrado aplicación vs disco)
+- [x] F4-T02 — Ejecutar validación local de `clinical-service` (`checkstyle` + `test`)
+- [x] F4-T03 — Implementar endpoints de pacientes y encuentros en `clinical-service`
+- [x] F4-T03 — Implementar exportaciones `PDF` y `FHIR` con auditoría
+- [x] F4-T03 — Añadir tests de integración de seguridad (`403`/`409`)
+- [x] F4-T03 — Ejecutar validación local de `clinical-service` (`checkstyle` + `test`)
+- [x] F4-T04 — Crear wrapper API clinical en physician-portal
+- [x] F4-T04 — Implementar `/patients/:id` con perfil, alergias y medicación activa
+- [x] F4-T04 — Implementar `/patients/:id/encounters/new` con diagnóstico ICD-10
+- [x] F4-T04 — Mostrar warning de alergias + flujo de firma irreversible
+- [x] F4-T04 — Internacionalizar UI clínica (es-CO / en-US)
+- [x] F4-T04 — Añadir test Playwright del flujo crear → firmar → edición falla
+- [x] F4-T04 — Ejecutar validación local de physician-portal (`lint` + `type-check`)
+- [x] F4-T05 — Diseñar pseudonymization store para pacientes EU
+- [x] F4-T05 — Implementar `POST /api/v1/patients/:id/gdpr-request` en clinical-service
+- [x] F4-T05 — Aplicar reglas FR-CLN-06 (EU: seudonimizar/eliminar identidad, CO: retención)
+- [x] F4-T05 — Crear ADR-006 (GDPR erasure vs retención 15 años)
+- [x] F4-T05 — Actualizar docs (`API.md`, `THREAT_MODEL.md`, `SECURITY.md`)
+- [x] F4-T05 — Añadir tests de flujo GDPR por región y validaciones de acceso
+- [ ] F4-T05 — Ejecutar validación local de clinical-service (`checkstyle` + `test`)
+
 ## Implementar servicio `api-gateway-identity` (MVP mínimo)
 
 - [x] Planificar pasos en la lista de tareas del agente

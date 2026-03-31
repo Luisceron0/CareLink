@@ -274,53 +274,55 @@ con resolución de conflictos y cambio de estado completo.
 **Servicios:** `scheduling-service` + `physician-portal`
 
 ### F3-T01 — Dominio de Appointment
-- [ ] Crear entidad `Appointment` con campo `version` para optimistic locking
-- [ ] Crear states: `PENDING → CONFIRMED → IN_PROGRESS → COMPLETED | CANCELLED | NO_SHOW`
-- [ ] Crear value object `AppointmentStatus` con validación de transiciones permitidas
-- [ ] Crear excepciones: `SlotAlreadyBookedException` (incluye 3 alternativas),
+- [x] Crear entidad `Appointment` con campo `version` para optimistic locking
+- [x] Crear states: `PENDING → CONFIRMED → IN_PROGRESS → COMPLETED | CANCELLED | NO_SHOW`
+- [x] Crear value object `AppointmentStatus` con validación de transiciones permitidas
+- [x] Crear excepciones: `SlotAlreadyBookedException` (incluye 3 alternativas),
   `InvalidStatusTransitionException`
-- [ ] Crear eventos de dominio: `AppointmentBooked`, `AppointmentCancelled`,
+- [x] Crear eventos de dominio: `AppointmentBooked`, `AppointmentCancelled`,
   `AppointmentCompleted`, `AppointmentNoShow`
-- [ ] Crear caso de uso: `BookAppointmentUseCase`, `UpdateAppointmentStatusUseCase`,
+- [x] Crear caso de uso: `BookAppointmentUseCase`, `UpdateAppointmentStatusUseCase`,
   `CancelAppointmentUseCase`
-- [ ] Test unitario: transiciones de estado inválidas lanzan excepción
-- [ ] Test unitario: `BookAppointmentUseCase` emite evento `AppointmentBooked`
+- [x] Test unitario: transiciones de estado inválidas lanzan excepción
+- [x] Test unitario: `BookAppointmentUseCase` emite evento `AppointmentBooked`
 
 **Commit:** `feat(scheduling): Add appointment domain with state machine and events`
 
 ### F3-T02 — Optimistic locking y constraint de BD
-- [ ] Agregar `@Version` a entidad `Appointment` en JPA
-- [ ] Agregar constraint único en BD: `(physician_id, slot_start) WHERE status = BOOKED`
-- [ ] Implementar manejo de `ObjectOptimisticLockingFailureException` →
+- [x] Agregar `@Version` a entidad `Appointment` en JPA
+- [x] Agregar constraint único en BD: `(physician_id, slot_start) WHERE status = BOOKED`
+- [x] Implementar manejo de `ObjectOptimisticLockingFailureException` →
   captura, busca 3 alternativas, lanza `SlotAlreadyBookedException`
-- [ ] Test de concurrencia con @EmbeddedKafka + Zonky: 10 threads intentando reservar el mismo
+- [x] Test de concurrencia con @EmbeddedKafka + Zonky: 10 threads intentando reservar el mismo
   slot → exactamente 1 éxito, 9 `SlotAlreadyBookedException` — sin Docker
-- [ ] Crear `docs/adr/ADR-004.md` — optimistic locking vs. pessimistic locking
+- [x] Crear `docs/adr/ADR-004.md` — optimistic locking vs. pessimistic locking
 
 **Commit:** `feat(scheduling): Add optimistic locking with conflict resolution`
 
 ### F3-T03 — API de citas
-- [ ] Crear `POST /api/v1/appointments` — reserva cita, emite `AppointmentBooked` a Kafka
-- [ ] Crear `GET /api/v1/appointments` — lista con filtros (fecha, médico, estado)
-- [ ] Crear `PATCH /api/v1/appointments/:id/status` — transición de estado
-- [ ] Crear `DELETE /api/v1/appointments/:id` — cancela (soft delete, emite evento)
-- [ ] Publicar eventos a Kafka en cada transición: topic `appointments`
-- [ ] Security: RECEPTIONIST puede reservar y cancelar, no puede marcar IN_PROGRESS
-- [ ] Security: PHYSICIAN puede marcar IN_PROGRESS y COMPLETED
-- [ ] Test: respuesta de conflicto incluye exactamente 3 slots alternativos
-- [ ] Test: cross-tenant appointment access devuelve 403
+- [x] Crear `POST /api/v1/appointments` — reserva cita, emite `AppointmentBooked` a Kafka
+- [x] Crear `GET /api/v1/appointments` — lista con filtros (fecha, médico, estado)
+- [x] Crear `PATCH /api/v1/appointments/:id/status` — transición de estado
+- [x] Crear `DELETE /api/v1/appointments/:id` — cancela (soft delete, emite evento)
+- [x] Publicar eventos a Kafka en cada transición: topic `appointments`
+- [x] Security: RECEPTIONIST puede reservar y cancelar, no puede marcar IN_PROGRESS
+- [x] Security: PHYSICIAN puede marcar IN_PROGRESS y COMPLETED
+- [x] Test: respuesta de conflicto incluye exactamente 3 slots alternativos
+- [x] Test: cross-tenant appointment access devuelve 403
 
 **Commit:** `feat(scheduling): Add appointment CRUD endpoints with Kafka events`
 
 ### F3-T04 — UI de reserva en Physician Portal
-- [ ] Crear página `/appointments/new` — selector de médico, fecha, slot disponible
-- [ ] Mostrar slots en tiempo real actualizados por polling cada 30s
-- [ ] Mostrar modal de conflicto con 3 alternativas cuando hay colisión
-- [ ] Crear página `/appointments` — lista con filtros y cambio de estado inline
-- [ ] i18n: fechas, horas y mensajes de error localizados
-- [ ] Test Playwright: flujo completo de reserva incluyendo resolución de conflicto
+- [x] Crear página `/appointments/new` — selector de médico, fecha, slot disponible
+- [x] Mostrar slots en tiempo real actualizados por polling cada 30s
+- [x] Mostrar modal de conflicto con 3 alternativas cuando hay colisión
+- [x] Crear página `/appointments` — lista con filtros y cambio de estado inline
+- [x] i18n: fechas, horas y mensajes de error localizados
+- [x] Test Playwright: flujo completo de reserva incluyendo resolución de conflicto
 
 **Commit:** `feat(physician-portal): Add appointment booking UI with conflict resolution`
+
+## CHECKPOINT: Fase 3 completada
 
 **>> CHECKPOINT FASE 3 — Esperar revisión humana antes de continuar <<**
 
@@ -335,48 +337,48 @@ Los registros son inmutables después de firmados. PHI cifrado en reposo.
 **Regulación:** Res. 3100/2019, Ley 527/1999, Ley 1581/2012, HIPAA §164.312
 
 ### F4-T01 — Dominio de Clinical Records
-- [ ] Crear entidades: `Patient`, `Encounter`, `Prescription`, `Allergy`,
+- [x] Crear entidades: `Patient`, `Encounter`, `Prescription`, `Allergy`,
   `ActiveMedication`
-- [ ] Crear value objects: `DocumentId` (validación por tipo: cédula, pasaporte, NIT),
+- [x] Crear value objects: `DocumentId` (validación por tipo: cédula, pasaporte, NIT),
   `ICD10Code`, `BloodType`
-- [ ] Crear puertos: `PatientRepository`, `EncounterRepository`, `AuditLogPort`,
+- [x] Crear puertos: `PatientRepository`, `EncounterRepository`, `AuditLogPort`,
   `EncryptionPort`, `FhirExporter`
-- [ ] Regla de dominio: `Encounter` es inmutable después de `signedAt != null`
-- [ ] Regla de dominio: prescripción advierte (no bloquea) si hay conflicto con alergia
-- [ ] Crear eventos: `EncounterSigned`, `PatientRegistered`
-- [ ] Test unitario: intento de modificar encounter firmado lanza `ImmutableRecordException`
-- [ ] Test unitario: prescripción con alergia conocida genera warning en resultado
+- [x] Regla de dominio: `Encounter` es inmutable después de `signedAt != null`
+- [x] Regla de dominio: prescripción advierte (no bloquea) si hay conflicto con alergia
+- [x] Crear eventos: `EncounterSigned`, `PatientRegistered`
+- [x] Test unitario: intento de modificar encounter firmado lanza `ImmutableRecordException`
+- [x] Test unitario: prescripción con alergia conocida genera warning en resultado
 
 **Commit:** `feat(clinical): Add patient and encounter domain with immutability rules`
 
--### F4-T02 — Cifrado PHI y audit log
-- [ ] Implementar `VaultEncryptionAdapter` — cifra/descifra con AES-256-GCM usando
--  clave por tenant almacenada en Supabase Vault (o simulado en local con clave de entorno)
-- [ ] Aplicar cifrado en campos PHI de `Patient`: `fullName`, `phone`, `email`,
+### F4-T02 — Cifrado PHI y audit log
+- [x] Implementar `VaultEncryptionAdapter` — cifra/descifra con AES-256-GCM usando
+  clave por tenant almacenada en Supabase Vault (o simulado en local con clave de entorno)
+- [x] Aplicar cifrado en campos PHI de `Patient`: `fullName`, `phone`, `email`,
   `emergencyContact`
-- [ ] Aplicar cifrado en campos clínicos de `Encounter`: `chiefComplaint`,
+- [x] Aplicar cifrado en campos clínicos de `Encounter`: `chiefComplaint`,
   `physicalExam`, `treatmentPlan`, `followUpInstructions`
-- [ ] Implementar `PhiAuditLogAdapter` — INSERT-only en tabla `phi_audit_log`
-- [ ] Configurar usuario de BD `app_clinical_user` con REVOKE UPDATE, DELETE
+- [x] Implementar `PhiAuditLogAdapter` — INSERT-only en tabla `phi_audit_log`
+- [x] Configurar usuario de BD `app_clinical_user` con REVOKE UPDATE, DELETE
   en `phi_audit_log`
-- [ ] Test: lectura de patient genera exactamente 1 entrada en `phi_audit_log`
-- [ ] Test: intento de DELETE en `phi_audit_log` es rechazado por la BD
-- [ ] Crear `docs/adr/ADR-005.md` — cifrado a nivel de aplicación vs. solo disco
+- [x] Test: lectura de patient genera exactamente 1 entrada en `phi_audit_log`
+- [x] Test: intento de DELETE en `phi_audit_log` es rechazado por la BD
+- [x] Crear `docs/adr/ADR-005.md` — cifrado a nivel de aplicación vs. solo disco
 
 **Commit:** `security(clinical): Add PHI encryption and immutable audit log`
 
 ### F4-T03 — API de pacientes y encuentros
-- [ ] Crear `POST /api/v1/patients` — registra paciente con PHI cifrado
-- [ ] Crear `GET /api/v1/patients/:id` — descifra y devuelve PHI + audit log
-- [ ] Crear `POST /api/v1/patients/:id/encounters` — crea encuentro clínico
-- [ ] Crear `POST /api/v1/patients/:id/encounters/:eid/sign` — firma y bloquea encuentro
-- [ ] Crear `GET /api/v1/patients/:id/export/pdf` — genera PDF con HCE completa
-- [ ] Crear `GET /api/v1/patients/:id/export/fhir` — genera FHIR R4 JSON
-- [ ] Security: RECEPTIONIST no puede leer encounters — devuelve 403
-- [ ] Security: PHYSICIAN solo accede a pacientes de su tenant
-- [ ] Test: RECEPTIONIST intentando GET /encounters devuelve 403
-- [ ] Test: cross-tenant patient access devuelve 403
-- [ ] Test: PUT en encounter firmado devuelve 409
+- [x] Crear `POST /api/v1/patients` — registra paciente con PHI cifrado
+- [x] Crear `GET /api/v1/patients/:id` — descifra y devuelve PHI + audit log
+- [x] Crear `POST /api/v1/patients/:id/encounters` — crea encuentro clínico
+- [x] Crear `POST /api/v1/patients/:id/encounters/:eid/sign` — firma y bloquea encuentro
+- [x] Crear `GET /api/v1/patients/:id/export/pdf` — genera PDF con HCE completa
+- [x] Crear `GET /api/v1/patients/:id/export/fhir` — genera FHIR R4 JSON
+- [x] Security: RECEPTIONIST no puede leer encounters — devuelve 403
+- [x] Security: PHYSICIAN solo accede a pacientes de su tenant
+- [x] Test: RECEPTIONIST intentando GET /encounters devuelve 403
+- [x] Test: cross-tenant patient access devuelve 403
+- [x] Test: PUT en encounter firmado devuelve 409
 
 **Commit:** `feat(clinical): Add patient and encounter endpoints with PHI protection`
 
@@ -627,7 +629,7 @@ está como código y el pipeline CI/CD es completo.
 | ADR-002 | RS256 vs HS256 para JWT | Pendiente | F1-T07 |
 | ADR-003 | Argon2id para hashing de contraseñas | Pendiente | F1-T07 |
 | ADR-004 | Optimistic locking vs pessimistic locking | Pendiente | F3-T02 |
-| ADR-005 | Cifrado PHI a nivel de aplicación vs. solo disco | Pendiente | F4-T02 |
+| ADR-005 | Cifrado PHI a nivel de aplicación vs. solo disco | Aceptado | F4-T02 |
 | ADR-006 | GDPR erasure vs. retención 15 años MinSalud | Pendiente | F4-T05 |
 | ADR-007 | Sin Docker: Zonky + EmbeddedKafka + Railway + Supabase | Pendiente | F0-T02 |
 
