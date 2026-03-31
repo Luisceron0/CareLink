@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AppointmentBooked",
+  "type": "object",
+  "properties": {
+    "event_type": { "type": "string", "const": "AppointmentBooked" },
+    "appointment_id": { "type": "string", "format": "uuid" },
+    "tenant_id": { "type": "string", "format": "uuid" },
+    "physician_id": { "type": "string", "format": "uuid" },
+    "patient_id": { "type": "string", "format": "uuid" },
+    "start_time": { "type": "string", "format": "date-time" },
+    "duration_minutes": { "type": "integer" },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["event_type","appointment_id","tenant_id","physician_id","patient_id","start_time","duration_minutes","created_at"],
+  "additionalProperties": false
+}

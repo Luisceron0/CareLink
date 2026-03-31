@@ -1,5 +1,14 @@
 package com.carelink.identity.domain.exception;
 
+/** Indicates tenant slug already exists. */
 public class TenantAlreadyExistsException extends RuntimeException {
-    public TenantAlreadyExistsException(String message) { super(message); }
+
+    /**
+     * Builds exception.
+     *
+     * @param message error message
+     */
+    public TenantAlreadyExistsException(final String message) {
+        super(message);
+    }
 }

@@ -1,22 +1,114 @@
 package com.carelink.identity.application.dto;
 
-public class RegisterTenantRequest {
+/** Request payload to register a tenant and admin user. */
+public final class RegisterTenantRequest {
+
+    /** Tenant display name. */
     private String name;
+
+    /** URL-safe tenant slug. */
     private String slug;
+
+    /** Tenant tax identifier. */
     private String taxId;
+
+    /** Tenant admin email. */
     private String adminEmail;
+
+    /** Tenant admin raw password. */
     private String password;
 
-    public RegisterTenantRequest() {}
+    /** Default constructor for JSON binding. */
+    public RegisterTenantRequest() {
+    }
 
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-    public String getSlug() { return slug; }
-    public void setSlug(String slug) { this.slug = slug; }
-    public String getTaxId() { return taxId; }
-    public void setTaxId(String taxId) { this.taxId = taxId; }
-    public String getAdminEmail() { return adminEmail; }
-    public void setAdminEmail(String adminEmail) { this.adminEmail = adminEmail; }
-    public String getPassword() { return password; }
-    public void setPassword(String password) { this.password = password; }
+    /**
+     * Gets tenant name.
+     *
+     * @return tenant name
+     */
+    public String getName() {
+        return name;
+    }
+
+    /**
+     * Sets tenant name.
+     *
+     * @param tenantName tenant name
+     */
+    public void setName(final String tenantName) {
+        this.name = tenantName;
+    }
+
+    /**
+     * Gets tenant slug.
+     *
+     * @return tenant slug
+     */
+    public String getSlug() {
+        return slug;
+    }
+
+    /**
+     * Sets tenant slug.
+     *
+     * @param tenantSlug tenant slug
+     */
+    public void setSlug(final String tenantSlug) {
+        this.slug = tenantSlug;
+    }
+
+    /**
+     * Gets tax id.
+     *
+     * @return tax id
+     */
+    public String getTaxId() {
+        return taxId;
+    }
+
+    /**
+     * Sets tax id.
+     *
+     * @param taxIdentifier tax id
+     */
+    public void setTaxId(final String taxIdentifier) {
+        this.taxId = taxIdentifier;
+    }
+
+    /**
+     * Gets admin email.
+     *
+     * @return admin email
+     */
+    public String getAdminEmail() {
+        return adminEmail;
+    }
+
+    /**
+     * Sets admin email.
+     *
+     * @param tenantAdminEmail admin email
+     */
+    public void setAdminEmail(final String tenantAdminEmail) {
+        this.adminEmail = tenantAdminEmail;
+    }
+
+    /**
+     * Gets admin password.
+     *
+     * @return admin password
+     */
+    public String getPassword() {
+        return password;
+    }
+
+    /**
+     * Sets admin password.
+     *
+     * @param adminPassword admin password
+     */
+    public void setPassword(final String adminPassword) {
+        this.password = adminPassword;
+    }
 }

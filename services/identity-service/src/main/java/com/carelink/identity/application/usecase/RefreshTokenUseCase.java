@@ -5,20 +5,41 @@ import com.carelink.identity.domain.port.SessionRepository;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
-public class RefreshTokenUseCase {
+/** Rotates refresh tokens. */
+public final class RefreshTokenUseCase {
+
+    /** Session repository port. */
     private final SessionRepository sessionRepository;
 
-    public RefreshTokenUseCase(SessionRepository sessionRepository) {
-        this.sessionRepository = sessionRepository;
+    /**
+     * Builds refresh-token use case.
+     *
+     * @param sessionRepositoryPort session repository
+     */
+    public RefreshTokenUseCase(final SessionRepository sessionRepositoryPort) {
+        this.sessionRepository = sessionRepositoryPort;
     }
 
-    public Session execute(String refreshToken) {
-        Session existing = sessionRepository.findByRefreshToken(refreshToken)
-                .orElseThrow(() -> new RuntimeException("Invalid refresh token"));
+    /**
+     * Rotates a valid refresh token.
+     *
+     * @param refreshToken refresh token
+     * @return newly created session
+     */
+    public Session execute(final String refreshToken) {
+        final Session existing = sessionRepository
+            .findByRefreshToken(refreshToken)
+            .orElseThrow(
+                () -> new RuntimeException("Invalid refresh token")
+            );
 
-        // Create a new session (rotation): issue new refresh token, persist, then delete old
-        String newRefresh = UUID.randomUUID().toString();
-        Session next = new Session(UUID.randomUUID(), existing.userId(), newRefresh, OffsetDateTime.now());
+        final String newRefresh = UUID.randomUUID().toString();
+        final Session next = new Session(
+            UUID.randomUUID(),
+            existing.userId(),
+            newRefresh,
+            OffsetDateTime.now()
+        );
         sessionRepository.save(next);
         sessionRepository.deleteById(existing.id());
         return next;

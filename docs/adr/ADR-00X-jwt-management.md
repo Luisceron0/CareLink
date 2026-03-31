@@ -1,7 +1,7 @@
 # ADR-00X — JWT Key Management & Refresh Token Rotation
 
 ## Estado
-Propuesto
+Aceptado
 
 ## Contexto
 El SRS exige JWTs firmados con RS256 para access tokens y refresh tokens rotados on‑use (15m access, 7d refresh). Para ser seguras y sostenibles, las claves privadas no deben residir en el código ni en variables de entorno en texto claro en producción. Además, la validación de tokens debe soportar rotación de claves (`kid`) y fetch seguro de claves públicas (JWKS) cuando sean necesarias.
@@ -13,7 +13,14 @@ El SRS exige JWTs firmados con RS256 para access tokens y refresh tokens rotados
    - `JwksKeyProvider`: consumidor de JWKS con cache y TTL configurable (lectura solo de claves públicas).
 3. `JwtService` usará `JwtKeyProvider` para firmar y verificar tokens; firmará con la clave privada del proveedor (si está disponible) y verificará usando `kid` contra las claves públicas del proveedor.
 4. Refresh tokens se almacenarán hasheadas (HMAC-SHA256) en la BD/Redis; al refresh se emitirá un nuevo token y se invalidará (eliminará) el anterior (rotación one‑time‑use).
-5. En producción, las claves privadas deben almacenarse en un KMS/Vault (Supabase Vault o proveedor equivalente). La integración con Vault será implementada en un adaptador futuro que implementará `JwtKeyProvider` y leerá claves privadas de forma segura.
+5. En producción, las claves privadas deben almacenarse en un KMS/Vault (Supabase Vault o proveedor equivalente). Se implementa ahora un adaptador `VaultKeyProvider` que carga PEM PKCS#8 desde un secreto seguro o desde un archivo protegido por el runtime y deriva la clave pública. En producción se recomienda usar un KMS sign‑only que ofrezca operaciones de firma remota en lugar de exponer la clave privada.
+
+### Requisitos operacionales
+
+- Documentar y provisionar los secretos en la plataforma de despliegue (Railway, Vercel, etc.).
+- Asegurar acceso restringido al secreto de la clave privada y rotación periódica (procedimiento operativa).
+- Añadir alertas por problemas en fetch de JWKS y fallos de verificación.
+- Audit logging: registrar eventos de carga/rotación de clave y operaciones de refresh (sin PHI en logs).
 
 ## Alternativas consideradas
 - Almacenar claves privadas en variables de entorno — descartada (riesgo alto de fuga y rotación manual).

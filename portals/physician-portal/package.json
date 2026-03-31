@@ -7,17 +7,23 @@
     "build": "next build",
     "start": "next start",
     "type-check": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "next": "^14.0.0",
+    "next-intl": "^2.0.0",
     "react": "^18.0.0",
-    "react-dom": "^18.0.0",
-    "next-intl": "^2.0.0"
+    "react-dom": "^18.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
+    "@playwright/test": "^1.52.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "19.2.14",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
     "eslint": "^8.0.0",
-    "prettier": "^2.0.0"
+    "prettier": "^2.0.0",
+    "typescript": "^5.0.0"
   }
 }

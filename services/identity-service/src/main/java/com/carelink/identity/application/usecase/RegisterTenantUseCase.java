@@ -16,47 +16,95 @@ import com.carelink.identity.domain.exception.TenantAlreadyExistsException;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
-public class RegisterTenantUseCase {
+/** Registers tenant, provisions schema, and creates admin user. */
+public final class RegisterTenantUseCase {
+
+    /** Tenant repository port. */
     private final TenantRepository tenantRepository;
+
+    /** User repository port. */
     private final UserRepository userRepository;
+
+    /** Schema provisioning port. */
     private final SchemaProvisioner schemaProvisioner;
+
+    /** Email notifier port. */
     private final EmailNotifier emailNotifier;
+
+    /** Password encoder port. */
     private final PasswordEncoder passwordEncoder;
+
+    /** Verification token repository port. */
     private final VerificationTokenRepository tokenRepository;
 
-    public RegisterTenantUseCase(TenantRepository tenantRepository,
-                                 UserRepository userRepository,
-                                 SchemaProvisioner schemaProvisioner,
-                                 EmailNotifier emailNotifier,
-                                 PasswordEncoder passwordEncoder,
-                                 VerificationTokenRepository tokenRepository) {
-        this.tenantRepository = tenantRepository;
-        this.userRepository = userRepository;
-        this.schemaProvisioner = schemaProvisioner;
-        this.emailNotifier = emailNotifier;
-        this.passwordEncoder = passwordEncoder;
-        this.tokenRepository = tokenRepository;
+    /**
+     * Builds register-tenant use case.
+     *
+     * @param tenantRepositoryPort tenant repository
+     * @param userRepositoryPort user repository
+     * @param schemaProvisionerPort schema provisioner
+     * @param emailNotifierPort email notifier
+     * @param passwordEncoderPort password encoder
+     * @param tokenRepositoryPort verification token repository
+     */
+    public RegisterTenantUseCase(
+            final TenantRepository tenantRepositoryPort,
+            final UserRepository userRepositoryPort,
+            final SchemaProvisioner schemaProvisionerPort,
+            final EmailNotifier emailNotifierPort,
+            final PasswordEncoder passwordEncoderPort,
+            final VerificationTokenRepository tokenRepositoryPort) {
+        this.tenantRepository = tenantRepositoryPort;
+        this.userRepository = userRepositoryPort;
+        this.schemaProvisioner = schemaProvisionerPort;
+        this.emailNotifier = emailNotifierPort;
+        this.passwordEncoder = passwordEncoderPort;
+        this.tokenRepository = tokenRepositoryPort;
     }
 
-    public Tenant execute(String name, String slugStr, String taxIdStr, String adminEmail, CharSequence rawPassword) {
-        TenantSlug slug = new TenantSlug(slugStr);
+    /**
+     * Executes tenant registration flow.
+     *
+     * @param name tenant name
+     * @param slugStr tenant slug
+     * @param taxIdStr tax id value
+     * @param adminEmail admin email
+     * @param rawPassword admin raw password
+     * @return created tenant
+     */
+    public Tenant execute(
+            final String name,
+            final String slugStr,
+            final String taxIdStr,
+            final String adminEmail,
+            final CharSequence rawPassword) {
+        final TenantSlug slug = new TenantSlug(slugStr);
         if (tenantRepository.findBySlug(slug.value()).isPresent()) {
             throw new TenantAlreadyExistsException("Tenant exists");
         }
-        TaxId taxId = new TaxId(taxIdStr);
-        Tenant tenant = new Tenant(UUID.randomUUID(), name, slug, OffsetDateTime.now());
+        new TaxId(taxIdStr);
+        final Tenant tenant = new Tenant(
+            UUID.randomUUID(),
+            name,
+            slug,
+            OffsetDateTime.now()
+        );
         tenantRepository.save(tenant);
 
-        // Provision tenant schema (adapter implemented in F1-T02)
         schemaProvisioner.provisionSchema(slug.value());
 
-        // Create initial TENANT_ADMIN user
-        String hashed = passwordEncoder.encode(rawPassword);
-        User admin = new User(UUID.randomUUID(), tenant.id(), new Email(adminEmail), "TENANT_ADMIN", new HashedPassword(hashed), OffsetDateTime.now());
+        final String hashed = passwordEncoder.encode(rawPassword);
+        final User admin = new User(
+            UUID.randomUUID(),
+            tenant.id(),
+            new Email(adminEmail),
+            "TENANT_ADMIN",
+            new HashedPassword(hashed),
+            OffsetDateTime.now()
+        );
         userRepository.save(admin);
 
-        // Create verification token and send email
-        String token = UUID.randomUUID().toString();
+        final String token = UUID.randomUUID().toString();
         tokenRepository.save(token, admin.id());
         emailNotifier.sendVerificationEmail(adminEmail, token);
 
