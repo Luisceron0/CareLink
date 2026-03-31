@@ -1,10 +1,30 @@
 package com.carelink.identity.application.dto;
 
-public class RefreshRequest {
+/** Request payload for refresh token operations. */
+public final class RefreshRequest {
+
+    /** Refresh token value. */
     private String refreshToken;
 
-    public RefreshRequest() {}
+    /** Default constructor for JSON binding. */
+    public RefreshRequest() {
+    }
 
-    public String getRefreshToken() { return refreshToken; }
-    public void setRefreshToken(String refreshToken) { this.refreshToken = refreshToken; }
+    /**
+     * Gets refresh token.
+     *
+     * @return refresh token
+     */
+    public String getRefreshToken() {
+        return refreshToken;
+    }
+
+    /**
+     * Sets refresh token.
+     *
+     * @param tokenValue refresh token
+     */
+    public void setRefreshToken(final String tokenValue) {
+        this.refreshToken = tokenValue;
+    }
 }

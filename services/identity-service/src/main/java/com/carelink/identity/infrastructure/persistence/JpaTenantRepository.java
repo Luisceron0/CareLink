@@ -10,21 +10,39 @@ import org.springframework.stereotype.Repository;
 import java.util.Optional;
 
 @Repository
-public class JpaTenantRepository implements TenantRepository {
+public final class JpaTenantRepository implements TenantRepository {
+
+    /** Spring Data adapter for tenant persistence. */
     private final TenantJpaRepository jpa;
 
-    public JpaTenantRepository(TenantJpaRepository jpa) {
-        this.jpa = jpa;
+    /**
+     * Builds the adapter.
+     *
+     * @param tenantJpaRepository spring data repository
+     */
+    public JpaTenantRepository(final TenantJpaRepository tenantJpaRepository) {
+        this.jpa = tenantJpaRepository;
     }
 
     @Override
-    public Optional<Tenant> findBySlug(String slug) {
-        return jpa.findBySlug(slug).map(e -> new Tenant(e.getId(), e.getName(), new TenantSlug(e.getSlug()), e.getCreatedAt()));
+    public Optional<Tenant> findBySlug(final String slug) {
+        return jpa.findBySlug(slug)
+            .map(entity -> new Tenant(
+                entity.getId(),
+                entity.getName(),
+                new TenantSlug(entity.getSlug()),
+                entity.getCreatedAt()
+            ));
     }
 
     @Override
-    public void save(Tenant tenant) {
-        TenantEntity entity = new TenantEntity(tenant.id(), tenant.name(), tenant.slug().value(), tenant.createdAt());
+    public void save(final Tenant tenant) {
+        final TenantEntity entity = new TenantEntity(
+            tenant.id(),
+            tenant.name(),
+            tenant.slug().value(),
+            tenant.createdAt()
+        );
         jpa.save(entity);
     }
 }

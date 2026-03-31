@@ -8,19 +8,34 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-@Configuration
+@Configuration(proxyBeanMethods = false)
 @EnableWebSecurity
-public class SecurityConfig {
+public final class SecurityConfig {
 
+    /**
+     * Configures stateless JWT-based security.
+     *
+     * @param http spring security builder
+     * @param jwtService jwt parser and validator
+     * @return security filter chain
+     * @throws Exception when security cannot be built
+     */
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtService jwtService) throws Exception {
+    public SecurityFilterChain securityFilterChain(
+            final HttpSecurity http,
+            final JwtService jwtService) throws Exception {
         http.csrf(csrf -> csrf.disable());
-        http.sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+        http.sessionManagement(
+            sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+        );
         http.authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/auth/**").permitAll()
                 .anyRequest().authenticated()
         );
-        http.addFilterBefore(new JwtAuthenticationFilter(jwtService), UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(
+            new JwtAuthenticationFilter(jwtService),
+            UsernamePasswordAuthenticationFilter.class
+        );
         return http.build();
     }
 }

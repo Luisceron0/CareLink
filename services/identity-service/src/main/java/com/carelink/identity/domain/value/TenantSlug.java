@@ -3,25 +3,45 @@ package com.carelink.identity.domain.value;
 import java.util.Objects;
 
 public final class TenantSlug {
+
+    /** Tenant slug value. */
     private final String value;
 
-    public TenantSlug(String value) {
-        if (value == null || !value.matches("^[a-z0-9-]{3,64}$")) {
+    /**
+     * Builds validated tenant slug.
+     *
+     * @param slugValue raw slug
+     */
+    public TenantSlug(final String slugValue) {
+        if (slugValue == null || !slugValue.matches("^[a-z0-9-]{3,64}$")) {
             throw new IllegalArgumentException("Invalid tenant slug");
         }
-        this.value = value;
+        this.value = slugValue;
     }
 
-    public String value() { return value; }
+    /**
+     * Returns slug value.
+     *
+     * @return slug value
+     */
+    public String value() {
+        return value;
+    }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof TenantSlug)) return false;
-        TenantSlug that = (TenantSlug) o;
+    public boolean equals(final Object other) {
+        if (this == other) {
+            return true;
+        }
+        if (!(other instanceof TenantSlug)) {
+            return false;
+        }
+        final TenantSlug that = (TenantSlug) other;
         return value.equals(that.value);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(value); }
+    public int hashCode() {
+        return Objects.hash(value);
+    }
 }

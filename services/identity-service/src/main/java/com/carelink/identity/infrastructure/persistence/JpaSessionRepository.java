@@ -10,51 +10,85 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Repository
-public class JpaSessionRepository implements SessionRepository {
+public final class JpaSessionRepository implements SessionRepository {
+
+    /** Default refresh token TTL in days. */
+    private static final long DEFAULT_REFRESH_TTL_DAYS = 7L;
+
+    /** Spring Data adapter for session persistence. */
     private final SessionJpaRepository jpa;
 
-    public JpaSessionRepository(SessionJpaRepository jpa) {
-        this.jpa = jpa;
+    /**
+     * Builds the adapter.
+     *
+     * @param jpaRepository spring data repository
+     */
+    public JpaSessionRepository(final SessionJpaRepository jpaRepository) {
+        this.jpa = jpaRepository;
     }
 
     @Override
-    public Optional<Session> findByRefreshToken(String token) {
-        // Tokens are stored hashed. Hash incoming token and look up. Also enforce TTL.
-        String hashed = com.carelink.identity.infrastructure.security.TokenHasher.hash(token);
-        var opt = jpa.findByRefreshToken(hashed);
-        if (opt.isEmpty()) return Optional.empty();
-        var e = opt.get();
-        long ttlDays = Long.parseLong(System.getenv().getOrDefault("REFRESH_TOKEN_TTL_DAYS", "7"));
-        java.time.OffsetDateTime expiry = e.getCreatedAt().plusDays(ttlDays);
-        if (java.time.OffsetDateTime.now().isAfter(expiry)) {
-            // expired: remove stale session
-            jpa.deleteById(e.getId());
+    public Optional<Session> findByRefreshToken(final String token) {
+        final String hashed =
+            com.carelink.identity.infrastructure.security.TokenHasher
+                .hash(token);
+        final var opt = jpa.findByRefreshToken(hashed);
+        if (opt.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(new Session(e.getId(), e.getUserId(), token, e.getCreatedAt()));
+        final var entity = opt.get();
+        final long ttlDays = Long.parseLong(
+            System.getenv().getOrDefault(
+                "REFRESH_TOKEN_TTL_DAYS",
+                String.valueOf(DEFAULT_REFRESH_TTL_DAYS)
+            )
+        );
+        final java.time.OffsetDateTime expiry = entity.getCreatedAt()
+            .plusDays(ttlDays);
+        if (java.time.OffsetDateTime.now().isAfter(expiry)) {
+            jpa.deleteById(entity.getId());
+            return Optional.empty();
+        }
+        return Optional.of(new Session(
+            entity.getId(),
+            entity.getUserId(),
+            token,
+            entity.getCreatedAt()
+        ));
     }
 
     @Override
-    public void save(Session session) {
-        // store hashed refresh token for safety
-        String hashed = com.carelink.identity.infrastructure.security.TokenHasher.hash(session.refreshToken());
-        SessionEntity entity = new SessionEntity(session.id(), session.userId(), hashed, session.createdAt());
+    public void save(final Session session) {
+        final String hashed =
+            com.carelink.identity.infrastructure.security.TokenHasher.hash(
+                session.refreshToken()
+            );
+        final SessionEntity entity = new SessionEntity(
+            session.id(),
+            session.userId(),
+            hashed,
+            session.createdAt()
+        );
         jpa.save(entity);
     }
 
     @Override
-    public void deleteById(UUID id) {
+    public void deleteById(final UUID id) {
         jpa.deleteById(id);
     }
 
     @Override
-    public java.util.List<Session> findByUserId(UUID userId) {
-        var list = jpa.findByUserIdOrderByCreatedAtAsc(userId);
-        var out = new java.util.ArrayList<Session>();
-        for (SessionEntity e : list) {
-            // note: we cannot recover the raw refresh token here, so expose stored hash as token placeholder
-            out.add(new Session(e.getId(), e.getUserId(), e.getRefreshToken(), e.getCreatedAt()));
+    public java.util.List<Session> findByUserId(final UUID userId) {
+        final var entities = jpa.findByUserIdOrderByCreatedAtAsc(userId);
+        final var sessions = new java.util.ArrayList<Session>();
+        for (SessionEntity entity : entities) {
+            sessions.add(new Session(
+                entity.getId(),
+                entity.getUserId(),
+                entity.getRefreshToken(),
+                entity.getCreatedAt()
+            ));
         }
-        return out;
+        return sessions;
     }
 }

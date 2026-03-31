@@ -68,14 +68,11 @@ public class JwksAndRefreshIntegrationTest {
             public java.util.Map<UUID, com.carelink.identity.domain.Session> map = new java.util.HashMap<>();
             @Override
             public java.util.Optional<com.carelink.identity.domain.Session> findByRefreshToken(String token) {
-                System.out.println("[TEST DEBUG] findByRefreshToken called with token=" + token);
-                map.values().forEach(s -> System.out.println("[TEST DEBUG] stored token=" + s.refreshToken()));
                 return map.values().stream().filter(s -> s.refreshToken().equals(token)).findFirst();
             }
 
             @Override
             public void save(com.carelink.identity.domain.Session session) {
-                System.out.println("[TEST DEBUG] saving session id=" + session.id() + " token=" + session.refreshToken());
                 map.put(session.id(), session);
             }
 
@@ -125,9 +122,9 @@ public class JwksAndRefreshIntegrationTest {
                 new NoopEmailNotifier(),
                 pwd,
                 new InMemoryVerificationTokenRepo(),
-                sessionRepo,
-                jwtService
+            sessionRepo
         );
+        controller.setJwtService(jwtService);
 
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
 

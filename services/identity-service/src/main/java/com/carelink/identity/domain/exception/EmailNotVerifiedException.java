@@ -1,5 +1,14 @@
 package com.carelink.identity.domain.exception;
 
+/** Indicates email must be verified before operation. */
 public class EmailNotVerifiedException extends RuntimeException {
-    public EmailNotVerifiedException(String message) { super(message); }
+
+    /**
+     * Builds exception.
+     *
+     * @param message error message
+     */
+    public EmailNotVerifiedException(final String message) {
+        super(message);
+    }
 }

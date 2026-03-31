@@ -1,5 +1,14 @@
 package com.carelink.identity.domain.exception;
 
+/** Indicates account is locked. */
 public class AccountLockedException extends RuntimeException {
-    public AccountLockedException(String message) { super(message); }
+
+    /**
+     * Builds exception.
+     *
+     * @param message error message
+     */
+    public AccountLockedException(final String message) {
+        super(message);
+    }
 }

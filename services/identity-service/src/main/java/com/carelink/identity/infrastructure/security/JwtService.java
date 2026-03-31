@@ -1,7 +1,9 @@
 package com.carelink.identity.infrastructure.security;
 
 import com.carelink.identity.domain.port.JwtKeyProvider;
-import com.nimbusds.jose.*;
+import com.nimbusds.jose.JOSEObjectType;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.nimbusds.jose.util.Base64URL;
@@ -17,76 +19,135 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Component
-public class JwtService {
+public final class JwtService {
+
+    /** Milliseconds in one second. */
+    private static final long MILLIS_PER_SECOND = 1000L;
+
+    /** JWT issuer claim value. */
+    private static final String ISSUER = "carelink-identity";
+
+    /** JWT signing and verification key provider. */
     private final JwtKeyProvider keyProvider;
+
+    /** Access token TTL in seconds. */
     private final long accessTokenTtlSeconds;
 
-    public JwtService(JwtKeyProvider keyProvider) {
-        this.keyProvider = keyProvider;
-        String ttl = System.getenv().getOrDefault("JWT_ACCESS_TTL", "900");
+    /**
+     * Builds JWT service using environment-based TTL.
+     *
+     * @param keyProviderValue key provider
+     */
+    public JwtService(final JwtKeyProvider keyProviderValue) {
+        this.keyProvider = keyProviderValue;
+        final String ttl = System.getenv().getOrDefault(
+            "JWT_ACCESS_TTL",
+            "900"
+        );
         this.accessTokenTtlSeconds = Long.parseLong(ttl);
     }
 
-    public String generateAccessToken(UUID userId, UUID tenantId, String role) {
+    /**
+     * Generates a signed RS256 access token.
+     *
+     * @param userId subject user identifier
+     * @param tenantId tenant identifier
+     * @param role user role
+     * @return signed JWT
+     */
+    public String generateAccessToken(
+            final UUID userId,
+            final UUID tenantId,
+            final String role) {
         try {
-            String kid = keyProvider.getDefaultKid().orElse(null);
+            final String keyId = keyProvider.getDefaultKid().orElse(null);
 
-            Date now = new Date();
-            Date exp = new Date(now.getTime() + accessTokenTtlSeconds * 1000);
+            final Date now = new Date();
+            final Date exp = new Date(
+                now.getTime() + accessTokenTtlSeconds * MILLIS_PER_SECOND
+            );
 
-            JWTClaimsSet.Builder claims = new JWTClaimsSet.Builder()
+            final JWTClaimsSet.Builder claims = new JWTClaimsSet.Builder()
                     .subject(userId.toString())
-                    .issuer("carelink-identity")
+                    .issuer(ISSUER)
                     .issueTime(now)
                     .expirationTime(exp)
                     .claim("role", role);
 
-            if (tenantId != null) claims.claim("tenant_id", tenantId.toString());
+            if (tenantId != null) {
+                claims.claim("tenant_id", tenantId.toString());
+            }
 
-            JWSHeader.Builder headerBuilder = new JWSHeader.Builder(JWSAlgorithm.RS256).type(JOSEObjectType.JWT);
-            if (kid != null) headerBuilder.keyID(kid);
-            JWSHeader header = headerBuilder.build();
+            final JWSHeader.Builder headerBuilder = new JWSHeader.Builder(
+                JWSAlgorithm.RS256
+            ).type(JOSEObjectType.JWT);
+            if (keyId != null) {
+                headerBuilder.keyID(keyId);
+            }
+            final JWSHeader header = headerBuilder.build();
 
-            // Build signing input (base64url(header) + "." + base64url(payload))
-            SignedJWT unsigned = new SignedJWT(header, claims.build());
-            String headerJson = unsigned.getHeader().toJSONObject().toString();
-            String payloadJson = unsigned.getJWTClaimsSet().toJSONObject().toString();
-            String headerB64 = Base64URL.encode(headerJson.getBytes(StandardCharsets.UTF_8)).toString();
-            String payloadB64 = Base64URL.encode(payloadJson.getBytes(StandardCharsets.UTF_8)).toString();
-            String signingInput = headerB64 + "." + payloadB64;
+            final SignedJWT unsigned = new SignedJWT(header, claims.build());
+            final String headerJson = unsigned.getHeader()
+                .toJSONObject()
+                .toString();
+            final String payloadJson =
+                unsigned.getJWTClaimsSet().toJSONObject().toString();
+            final String headerB64 = Base64URL.encode(
+                headerJson.getBytes(StandardCharsets.UTF_8)
+            ).toString();
+            final String payloadB64 = Base64URL.encode(
+                payloadJson.getBytes(StandardCharsets.UTF_8)
+            ).toString();
+            final String signingInput = headerB64 + "." + payloadB64;
 
-            // Prefer provider-side signing (KMS) if available
-            Optional<byte[]> remoteSig = keyProvider.sign(signingInput.getBytes(StandardCharsets.US_ASCII), kid);
+            final Optional<byte[]> remoteSig = keyProvider.sign(
+                signingInput.getBytes(StandardCharsets.US_ASCII),
+                keyId
+            );
             byte[] signatureBytes;
             if (remoteSig.isPresent()) {
                 signatureBytes = remoteSig.get();
             } else {
-                // Fallback: sign locally with private key
-                RSAPrivateKey signingKey = keyProvider.getPrivateKey().orElseThrow(() -> new RuntimeException("No private key available for signing"));
-                Signature sig = Signature.getInstance("SHA256withRSA");
+                final RSAPrivateKey signingKey =
+                    keyProvider.getPrivateKey().orElseThrow(
+                        () -> new RuntimeException(
+                            "No private key available for signing"
+                        )
+                    );
+                final Signature sig = Signature.getInstance("SHA256withRSA");
                 sig.initSign(signingKey);
                 sig.update(signingInput.getBytes(StandardCharsets.US_ASCII));
                 signatureBytes = sig.sign();
             }
 
-            String signatureB64 = Base64URL.encode(signatureBytes).toString();
+            final String signatureB64 = Base64URL.encode(signatureBytes)
+                .toString();
             return signingInput + "." + signatureB64;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
-    public com.nimbusds.jwt.JWTClaimsSet parseAndValidate(String token) {
+    /**
+     * Parses and validates a JWT token.
+     *
+     * @param token compact JWT string
+     * @return validated claims
+     */
+    public JWTClaimsSet parseAndValidate(final String token) {
         try {
-            SignedJWT signedJWT = SignedJWT.parse(token);
-            String kid = signedJWT.getHeader().getKeyID();
-            RSAPublicKey pub = keyProvider.getPublicKeyByKid(kid).orElseThrow(() -> new RuntimeException("No public key found for kid=" + kid));
-            RSASSAVerifier verifier = new RSASSAVerifier(pub);
+            final SignedJWT signedJWT = SignedJWT.parse(token);
+            final String keyId = signedJWT.getHeader().getKeyID();
+            final RSAPublicKey publicKey = keyProvider.getPublicKeyByKid(keyId)
+                .orElseThrow(() -> new RuntimeException(
+                    "No public key found for kid=" + keyId
+                ));
+            final RSASSAVerifier verifier = new RSASSAVerifier(publicKey);
             if (!signedJWT.verify(verifier)) {
                 throw new RuntimeException("Invalid JWT signature");
             }
-            com.nimbusds.jwt.JWTClaimsSet claims = signedJWT.getJWTClaimsSet();
-            Date exp = claims.getExpirationTime();
+            final JWTClaimsSet claims = signedJWT.getJWTClaimsSet();
+            final Date exp = claims.getExpirationTime();
             if (exp == null || new Date().after(exp)) {
                 throw new RuntimeException("Token expired");
             }

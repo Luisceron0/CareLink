@@ -11,22 +11,36 @@ import java.security.Signature;
 import java.util.Optional;
 import java.util.UUID;
 
-public class StaticKeyProvider implements JwtKeyProvider {
+public final class StaticKeyProvider implements JwtKeyProvider {
+
+    /** Generated RSA key size. */
+    private static final int RSA_KEY_SIZE = 2048;
+
+    /** In-memory private key for local signing. */
     private final RSAPrivateKey privateKey;
+
+    /** In-memory public key for local verification. */
     private final RSAPublicKey publicKey;
+
+    /** Key identifier associated with the generated key pair. */
     private final String kid;
 
+    /**
+     * Creates an ephemeral key provider.
+     */
     public StaticKeyProvider() {
         try {
-            // Dev-friendly: generate an in-memory keypair if none provided via Vault
-            RSAKey rsa = new RSAKeyGenerator(2048)
+            final RSAKey rsa = new RSAKeyGenerator(RSA_KEY_SIZE)
                     .keyID(UUID.randomUUID().toString())
                     .generate();
             this.privateKey = rsa.toRSAPrivateKey();
             this.publicKey = rsa.toRSAPublicKey();
             this.kid = rsa.getKeyID();
         } catch (Exception e) {
-            throw new RuntimeException("Unable to initialize StaticKeyProvider", e);
+            throw new RuntimeException(
+                "Unable to initialize StaticKeyProvider",
+                e
+            );
         }
     }
 
@@ -36,8 +50,10 @@ public class StaticKeyProvider implements JwtKeyProvider {
     }
 
     @Override
-    public Optional<RSAPublicKey> getPublicKeyByKid(String kid) {
-        if (this.kid != null && this.kid.equals(kid)) return Optional.of(publicKey);
+    public Optional<RSAPublicKey> getPublicKeyByKid(final String keyId) {
+        if (this.kid != null && this.kid.equals(keyId)) {
+            return Optional.of(publicKey);
+        }
         return Optional.empty();
     }
 
@@ -47,11 +63,17 @@ public class StaticKeyProvider implements JwtKeyProvider {
     }
 
     @Override
-    public Optional<byte[]> sign(byte[] signingInput, String kid) {
+        public Optional<byte[]> sign(
+            final byte[] signingInput,
+            final String keyId) {
         try {
-            if (this.privateKey == null) return Optional.empty();
-            if (kid != null && this.kid != null && !this.kid.equals(kid)) return Optional.empty();
-            Signature sig = Signature.getInstance("SHA256withRSA");
+            if (this.privateKey == null) {
+                return Optional.empty();
+            }
+            if (keyId != null && this.kid != null && !this.kid.equals(keyId)) {
+                return Optional.empty();
+            }
+            final Signature sig = Signature.getInstance("SHA256withRSA");
             sig.initSign(privateKey);
             sig.update(signingInput);
             return Optional.of(sig.sign());

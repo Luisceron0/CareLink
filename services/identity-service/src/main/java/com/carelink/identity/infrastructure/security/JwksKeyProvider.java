@@ -7,33 +7,62 @@ import com.nimbusds.jose.jwk.RSAKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.URL;
 import java.security.interfaces.RSAPublicKey;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class JwksKeyProvider implements JwtKeyProvider {
-    private static final Logger log = LoggerFactory.getLogger(JwksKeyProvider.class);
+public final class JwksKeyProvider implements JwtKeyProvider {
+
+    /** Class logger. */
+    private static final Logger LOG = LoggerFactory.getLogger(
+        JwksKeyProvider.class
+    );
+
+    /** Milliseconds in one second. */
+    private static final long MILLIS_PER_SECOND = 1000L;
+
+    /** Remote JWKS URL. */
     private final String jwksUrl;
+
+    /** In-memory public key cache by kid. */
     private final Map<String, RSAPublicKey> cache = new ConcurrentHashMap<>();
+
+    /** Last successful fetch timestamp. */
     private volatile long lastFetch = 0L;
+
+    /** Cache TTL in milliseconds. */
     private final long ttlMs;
 
-    public JwksKeyProvider(String jwksUrl, long ttlSeconds) {
-        this.jwksUrl = jwksUrl;
-        this.ttlMs = ttlSeconds * 1000L;
+    /**
+     * Builds a JWKS-backed key provider.
+     *
+     * @param jwksUrlValue jwks endpoint
+     * @param ttlSeconds cache ttl in seconds
+     */
+    public JwksKeyProvider(final String jwksUrlValue, final long ttlSeconds) {
+        this.jwksUrl = jwksUrlValue;
+        this.ttlMs = ttlSeconds * MILLIS_PER_SECOND;
         try {
             if (jwksUrl != null && !jwksUrl.isBlank()) {
-                java.net.URL url = new java.net.URL(jwksUrl);
+                final java.net.URL url = new java.net.URL(jwksUrl);
                 if (!"https".equalsIgnoreCase(url.getProtocol())) {
-                    log.warn("JWKS URL must use HTTPS: {}", jwksUrl);
+                    LOG.warn("JWKS URL must use HTTPS: {}", jwksUrl);
                 } else {
-                    String allow = System.getenv().getOrDefault("JWT_JWKS_HOST_ALLOWLIST", "");
+                    final String allow = System.getenv().getOrDefault(
+                        "JWT_JWKS_HOST_ALLOWLIST",
+                        ""
+                    );
                     if (!allow.isBlank()) {
-                        var allowed = java.util.Arrays.stream(allow.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+                        final var allowed = java.util.Arrays.stream(
+                            allow.split(",")
+                        ).map(String::trim).filter(s -> !s.isEmpty()).toList();
                         if (!allowed.contains(url.getHost())) {
-                            log.warn("JWKS host {} not in allowlist, skipping preload", url.getHost());
+                            LOG.warn(
+                                "JWKS host {} not in allowlist, "
+                                    + "skipping preload",
+                                url.getHost()
+                            );
                         } else {
                             fetch();
                         }
@@ -43,30 +72,46 @@ public class JwksKeyProvider implements JwtKeyProvider {
                 }
             }
         } catch (Exception e) {
-            log.warn("Unable to preload JWKS from {}: {}", jwksUrl, e.getMessage());
+            LOG.warn(
+                "Unable to preload JWKS from {}: {}",
+                jwksUrl,
+                e.getMessage()
+            );
         }
     }
 
     private synchronized void fetch() {
         try {
-            if (jwksUrl == null) return;
-            if (System.currentTimeMillis() - lastFetch < ttlMs) return;
-            java.net.URL url = new java.net.URL(jwksUrl);
-            java.net.URLConnection conn = url.openConnection();
-            conn.setConnectTimeout(Integer.parseInt(System.getenv().getOrDefault("JWT_JWKS_CONNECT_TIMEOUT_MS", "5000")));
-            conn.setReadTimeout(Integer.parseInt(System.getenv().getOrDefault("JWT_JWKS_READ_TIMEOUT_MS", "5000")));
+            if (jwksUrl == null) {
+                return;
+            }
+            if (System.currentTimeMillis() - lastFetch < ttlMs) {
+                return;
+            }
+            final java.net.URL url = new java.net.URL(jwksUrl);
+            final java.net.URLConnection conn = url.openConnection();
+            conn.setConnectTimeout(Integer.parseInt(
+                System.getenv().getOrDefault(
+                    "JWT_JWKS_CONNECT_TIMEOUT_MS",
+                    "5000"
+                )
+            ));
+            conn.setReadTimeout(Integer.parseInt(System.getenv().getOrDefault(
+                "JWT_JWKS_READ_TIMEOUT_MS",
+                "5000"
+            )));
             try (java.io.InputStream in = conn.getInputStream()) {
-                JWKSet set = JWKSet.load(in);
+                final JWKSet set = JWKSet.load(in);
                 for (JWK jwk : set.getKeys()) {
                     if (jwk instanceof RSAKey) {
-                        RSAKey r = (RSAKey) jwk;
-                        cache.put(r.getKeyID(), r.toRSAPublicKey());
+                        final RSAKey rsaKey = (RSAKey) jwk;
+                        cache.put(rsaKey.getKeyID(), rsaKey.toRSAPublicKey());
                     }
                 }
                 lastFetch = System.currentTimeMillis();
             }
         } catch (Exception e) {
-            log.warn("Failed to fetch JWKS: {}", e.getMessage());
+            LOG.warn("Failed to fetch JWKS: {}", e.getMessage());
         }
     }
 
@@ -76,16 +121,24 @@ public class JwksKeyProvider implements JwtKeyProvider {
     }
 
     @Override
-    public Optional<RSAPublicKey> getPublicKeyByKid(String kid) {
-        try { fetch(); } catch (Exception ignored) {}
+    public Optional<RSAPublicKey> getPublicKeyByKid(final String kid) {
+        try {
+            fetch();
+        } catch (RuntimeException ignored) {
+            // Best-effort refresh only.
+        }
         return Optional.ofNullable(cache.get(kid));
     }
 
     @Override
-    public Optional<String> getDefaultKid() { return Optional.empty(); }
+    public Optional<String> getDefaultKid() {
+        return Optional.empty();
+    }
 
     @Override
-    public Optional<byte[]> sign(byte[] signingInput, String kid) {
+    public Optional<byte[]> sign(
+            final byte[] signingInput,
+            final String kid) {
         // JWKS provider holds only public keys; cannot sign.
         return Optional.empty();
     }

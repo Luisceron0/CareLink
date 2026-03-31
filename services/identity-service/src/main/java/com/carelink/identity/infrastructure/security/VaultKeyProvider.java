@@ -6,11 +6,10 @@ import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
 
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.net.URL;
 import java.security.KeyFactory;
 import java.security.MessageDigest;
 import java.security.Signature;
@@ -24,30 +23,64 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class VaultKeyProvider implements JwtKeyProvider {
-    private static final Logger log = LoggerFactory.getLogger(VaultKeyProvider.class);
+public final class VaultKeyProvider implements JwtKeyProvider {
+
+    /** Class logger. */
+    private static final Logger LOG = LoggerFactory.getLogger(
+        VaultKeyProvider.class
+    );
+
+    /** Loaded private key for local signing fallback. */
     private volatile RSAPrivateKey privateKey;
-    private final Map<String, RSAPublicKey> publicCache = new ConcurrentHashMap<>();
+
+    /** Public keys cache indexed by key identifier. */
+    private final Map<String, RSAPublicKey> publicCache =
+        new ConcurrentHashMap<>();
+
+    /** Default key identifier. */
     private final String kid;
 
+    /**
+     * Builds provider from environment variables.
+     */
     public VaultKeyProvider() {
-        this(System.getenv("JWT_VAULT_PEM"), System.getenv("JWT_VAULT_PEM_PATH"), System.getenv("JWT_JWKS_URL"), System.getenv("JWT_VAULT_KID"));
+        this(
+            System.getenv("JWT_VAULT_PEM"),
+            System.getenv("JWT_VAULT_PEM_PATH"),
+            System.getenv("JWT_JWKS_URL"),
+            System.getenv("JWT_VAULT_KID")
+        );
     }
 
-    // Visible for tests
-    public VaultKeyProvider(String pem, String pemPath, String jwksUrl, String envKid) {
+    /**
+     * Builds provider from explicit values.
+     *
+     * @param pem private key in PEM format
+     * @param pemPath path to PEM file
+     * @param jwksUrl JWKS endpoint for public keys
+     * @param envKid configured key id
+     */
+    public VaultKeyProvider(
+            final String pem,
+            final String pemPath,
+            final String jwksUrl,
+            final String envKid) {
         String tmpKid = null;
         try {
             if (pem != null && !pem.isBlank()) {
                 this.privateKey = parsePrivateKeyFromPem(pem);
-                RSAPublicKey pub = derivePublicFromPrivate(privateKey);
-                tmpKid = envKid != null && !envKid.isBlank() ? envKid : computeKid(pub);
+                final RSAPublicKey pub = derivePublicFromPrivate(privateKey);
+                tmpKid = envKid != null && !envKid.isBlank()
+                    ? envKid
+                    : computeKid(pub);
                 publicCache.put(tmpKid, pub);
             } else if (pemPath != null && !pemPath.isBlank()) {
-                String content = Files.readString(Path.of(pemPath));
+                final String content = Files.readString(Path.of(pemPath));
                 this.privateKey = parsePrivateKeyFromPem(content);
-                RSAPublicKey pub = derivePublicFromPrivate(privateKey);
-                tmpKid = envKid != null && !envKid.isBlank() ? envKid : computeKid(pub);
+                final RSAPublicKey pub = derivePublicFromPrivate(privateKey);
+                tmpKid = envKid != null && !envKid.isBlank()
+                    ? envKid
+                    : computeKid(pub);
                 publicCache.put(tmpKid, pub);
             } else {
                 tmpKid = envKid != null && !envKid.isBlank() ? envKid : null;
@@ -55,42 +88,61 @@ public class VaultKeyProvider implements JwtKeyProvider {
 
             if (jwksUrl != null && !jwksUrl.isBlank()) {
                 try {
-                    JWKSet set = JWKSet.load(new URL(jwksUrl));
+                    final JWKSet set = JWKSet.load(new URL(jwksUrl));
                     for (JWK jwk : set.getKeys()) {
                         if (jwk instanceof RSAKey) {
-                            RSAKey r = (RSAKey) jwk;
-                            publicCache.put(r.getKeyID(), r.toRSAPublicKey());
+                            final RSAKey rsaKey = (RSAKey) jwk;
+                            publicCache.put(
+                                rsaKey.getKeyID(),
+                                rsaKey.toRSAPublicKey()
+                            );
                         }
                     }
                 } catch (Exception e) {
-                    log.warn("Unable to preload JWKS from {}: {}", jwksUrl, e.getMessage());
+                    LOG.warn(
+                        "Unable to preload JWKS from {}: {}",
+                        jwksUrl,
+                        e.getMessage()
+                    );
                 }
             }
         } catch (Exception e) {
-            log.error("VaultKeyProvider init failed: {}", e.getMessage());
+            LOG.error("VaultKeyProvider init failed: {}", e.getMessage());
         }
         this.kid = tmpKid;
     }
 
-    private RSAPrivateKey parsePrivateKeyFromPem(String pem) throws Exception {
-        String normalized = pem.replaceAll("-----BEGIN [A-Z ]+-----", "").replaceAll("-----END [A-Z ]+-----", "").replaceAll("\\s", "");
-        byte[] der = Base64.getDecoder().decode(normalized);
-        PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(der);
-        KeyFactory kf = KeyFactory.getInstance("RSA");
-        return (RSAPrivateKey) kf.generatePrivate(spec);
+    private RSAPrivateKey parsePrivateKeyFromPem(final String pem)
+            throws Exception {
+        final String normalized = pem
+            .replaceAll("-----BEGIN [A-Z ]+-----", "")
+            .replaceAll("-----END [A-Z ]+-----", "")
+            .replaceAll("\\s", "");
+        final byte[] der = Base64.getDecoder().decode(normalized);
+        final PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(der);
+        final KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+        return (RSAPrivateKey) keyFactory.generatePrivate(spec);
     }
 
-    private RSAPublicKey derivePublicFromPrivate(RSAPrivateKey priv) throws Exception {
+    private RSAPublicKey derivePublicFromPrivate(final RSAPrivateKey priv)
+            throws Exception {
         if (priv instanceof RSAPrivateCrtKey) {
-            RSAPrivateCrtKey crt = (RSAPrivateCrtKey) priv;
-            RSAPublicKeySpec pubSpec = new RSAPublicKeySpec(crt.getModulus(), crt.getPublicExponent());
-            return (RSAPublicKey) KeyFactory.getInstance("RSA").generatePublic(pubSpec);
+            final RSAPrivateCrtKey crt = (RSAPrivateCrtKey) priv;
+            final RSAPublicKeySpec pubSpec = new RSAPublicKeySpec(
+                crt.getModulus(),
+                crt.getPublicExponent()
+            );
+            return (RSAPublicKey) KeyFactory.getInstance("RSA")
+                .generatePublic(pubSpec);
         }
-        throw new IllegalArgumentException("Private key is not RSA CRT key; cannot derive public exponent");
+        throw new IllegalArgumentException(
+            "Private key is not RSA CRT key; cannot derive public exponent"
+        );
     }
 
-    private String computeKid(RSAPublicKey pub) throws Exception {
-        byte[] sha = MessageDigest.getInstance("SHA-256").digest(pub.getEncoded());
+    private String computeKid(final RSAPublicKey pub) throws Exception {
+        final byte[] sha = MessageDigest.getInstance("SHA-256")
+            .digest(pub.getEncoded());
         return Base64.getUrlEncoder().withoutPadding().encodeToString(sha);
     }
 
@@ -100,8 +152,8 @@ public class VaultKeyProvider implements JwtKeyProvider {
     }
 
     @Override
-    public Optional<RSAPublicKey> getPublicKeyByKid(String kid) {
-        return Optional.ofNullable(publicCache.get(kid));
+    public Optional<RSAPublicKey> getPublicKeyByKid(final String keyId) {
+        return Optional.ofNullable(publicCache.get(keyId));
     }
 
     @Override
@@ -110,11 +162,17 @@ public class VaultKeyProvider implements JwtKeyProvider {
     }
 
     @Override
-    public Optional<byte[]> sign(byte[] signingInput, String kid) {
+        public Optional<byte[]> sign(
+            final byte[] signingInput,
+            final String keyId) {
         try {
-            if (this.privateKey == null) return Optional.empty();
-            if (kid != null && this.kid != null && !this.kid.equals(kid)) return Optional.empty();
-            Signature sig = Signature.getInstance("SHA256withRSA");
+            if (this.privateKey == null) {
+                return Optional.empty();
+            }
+            if (keyId != null && this.kid != null && !this.kid.equals(keyId)) {
+                return Optional.empty();
+            }
+            final Signature sig = Signature.getInstance("SHA256withRSA");
             sig.initSign(privateKey);
             sig.update(signingInput);
             return Optional.of(sig.sign());

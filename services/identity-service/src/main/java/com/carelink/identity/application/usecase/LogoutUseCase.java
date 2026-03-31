@@ -1,16 +1,28 @@
 package com.carelink.identity.application.usecase;
 
 import com.carelink.identity.domain.port.SessionRepository;
-import java.util.UUID;
 
-public class LogoutUseCase {
+/** Revokes refresh token sessions. */
+public final class LogoutUseCase {
+
+    /** Session repository port. */
     private final SessionRepository sessionRepository;
 
-    public LogoutUseCase(SessionRepository sessionRepository) {
-        this.sessionRepository = sessionRepository;
+    /**
+     * Builds logout use case.
+     *
+     * @param sessionRepositoryPort session repository
+     */
+    public LogoutUseCase(final SessionRepository sessionRepositoryPort) {
+        this.sessionRepository = sessionRepositoryPort;
     }
 
-    public void execute(String refreshToken) {
+    /**
+     * Revokes session by refresh token.
+     *
+     * @param refreshToken refresh token
+     */
+    public void execute(final String refreshToken) {
         sessionRepository.findByRefreshToken(refreshToken)
                 .ifPresent(s -> sessionRepository.deleteById(s.id()));
     }

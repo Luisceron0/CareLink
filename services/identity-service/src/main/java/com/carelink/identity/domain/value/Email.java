@@ -3,28 +3,51 @@ package com.carelink.identity.domain.value;
 import java.util.Objects;
 
 public final class Email {
+
+    /** Canonicalized email value. */
     private final String value;
 
-    public Email(String value) {
-        if (value == null || !value.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+    /**
+     * Builds validated email value object.
+     *
+     * @param emailValue raw email
+     */
+    public Email(final String emailValue) {
+        if (emailValue == null
+                || !emailValue.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
             throw new IllegalArgumentException("Invalid email");
         }
-        this.value = value.toLowerCase();
+        this.value = emailValue.toLowerCase();
     }
 
-    public String value() { return value; }
+    /**
+     * Returns canonical value.
+     *
+     * @return email value
+     */
+    public String value() {
+        return value;
+    }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof Email)) return false;
-        Email email = (Email) o;
+    public boolean equals(final Object other) {
+        if (this == other) {
+            return true;
+        }
+        if (!(other instanceof Email)) {
+            return false;
+        }
+        final Email email = (Email) other;
         return value.equals(email.value);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(value); }
+    public int hashCode() {
+        return Objects.hash(value);
+    }
 
     @Override
-    public String toString() { return value; }
+    public String toString() {
+        return value;
+    }
 }
