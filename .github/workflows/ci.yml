@@ -12,24 +12,19 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Run Java build (mvn -q -DskipTests)
-        run: |
-          if [ -f pom.xml ]; then mvn -q -DskipTests package || true; fi
-      - name: Run Python tests
-        run: |
-          if [ -f services/notification-service/pyproject.toml ]; then cd services/notification-service && pytest -q || true; fi
-      - name: Lint portals (placeholder)
-        run: echo "Run portal linting in real pipeline"
+      # Sin `|| true`. Este paso lo tenía, y lo que ocultaba no era un test
+      # inestable: el reactor no compilaba desde hacía commits, porque tres
+      # módulos stub declaraban <parent> sin <relativePath>. El pipeline estuvo
+      # en verde sobre un proyecto que no construía. Los módulos se eliminaron
+      # (§3.3, §16.3) y la máscara se va con ellos.
+      - name: Run Java build
+        run: mvn -B -DskipTests package
       - name: Semgrep (SAST)
         uses: returntocorp/semgrep-action@v1
 
       - name: Java SCA (OWASP dependency-check)
         run: |
           if [ -f pom.xml ]; then mvn org.owasp:dependency-check-maven:check || true; fi
-
-      - name: Python SCA (pip-audit)
-        run: |
-          if [ -d services/notification-service ]; then python -m pip install --upgrade pip && python -m pip install pip-audit && (cd services/notification-service && pip-audit) || true; fi
 
       - name: Gitleaks (secret scanning)
         uses: zricethezav/gitleaks-action@v2
