@@ -18,10 +18,18 @@ construir en 8 frentes a la vez.
       **AC-04 no cerrado todavía:** su verificación es un gate de CI, y ese gate es
       tarea de Sub-fase 1. Hoy la condición se cumple, pero nada la hace bloqueante
       (lección del `|| true`: no dar por existente un gate que no existe).
-- [ ] `git rm --cached test_identity.db`; `*.db` a `.gitignore`
-- [ ] Decidir `git filter-repo` para purgar `test_identity.db` del historial
-- [ ] Consolidar a un solo `docs/SRS.md` v3.0; archivar `carelink-srs.md` y el SRS de
+- [x] `git rm --cached test_identity.db`; `*.db` a `.gitignore`
+      **AC-03 PASS:** `git ls-files '*.db'` vacío. El archivo sigue en disco, ignorado.
+- [ ] **Decidir `git filter-repo` para purgar `test_identity.db` del historial**
+      Única tarea abierta de la sub-fase. Requiere decisión explícita del autor: el PR #1
+      ya está mergeado, así que reescribir historia invalida cualquier clon o fork
+      existente y obliga a force-push. Hasta que se decida, el archivo con hashes
+      Argon2id de prueba sigue siendo recuperable de commits anteriores.
+- [x] Consolidar a un solo `docs/SRS.md` v3.0; archivar `carelink-srs.md` y el SRS de
       ClinicTrack como input histórico (no se borran, se mueven a `docs/archive/`)
+      Archivados `carelink-srs-v1.0.md` (1157 líneas) y `PROJECT_PLAN-v1.0.md`, que era
+      un plan paralelo a este archivo. **El SRS de ClinicTrack nunca estuvo en el repo**
+      — no hay nada que archivar de ese lado.
 - [x] `docker-compose.yml`: backend + PostgreSQL 16 + frontend (placeholder hasta
       Sub-fase 7) — ADR-012
       Verificado levantando el stack, no por inspección del archivo:
@@ -37,21 +45,33 @@ construir en 8 frentes a la vez.
       ganancia técnica. Ítem cerrado, sale de "abiertos" del SRS §20.
 
 ### Descubierto durante la Sub-fase 0 (no estaba en el plan original)
-- [ ] **El reactor Maven está roto.** `scheduling-service`, `clinical-service` y
-      `billing-service` declaran `<parent>` sin `<relativePath>`; Maven no resuelve el
-      POM padre y `./mvnw test` falla en la raíz. CI lo venía ocultando con `|| true`
-      (`ci.yml:17`). Se resuelve borrando los tres módulos, que además contradicen
-      §3.3 (clinical vive *dentro* de identity-service) y §16.3.
-- [ ] Borrar `portals/` — dos apps Next.js (patient + physician) que ADR-014 descarta
+- [x] **El reactor Maven estaba roto.** `scheduling-service`, `clinical-service` y
+      `billing-service` declaraban `<parent>` sin `<relativePath>`; Maven no resolvía el
+      POM padre y `./mvnw test` fallaba en la raíz. CI lo ocultaba con `|| true`.
+      Los tres módulos eliminados — además de romper el build contradecían §3.3
+      (clinical vive *dentro* de identity-service) y §16.3.
+      **Verificado desde la raíz:** `./mvnw -B test` -> 23 tests, BUILD SUCCESS.
+- [x] Borrado `portals/` — dos apps Next.js (patient + physician) que ADR-014 descarta
       explícitamente a favor de una SPA única sin Next.js.
-- [ ] Borrar `services/notification-service/` — FastAPI de 6 líneas; §9 excluye un
+- [x] Borrado `services/notification-service/` — FastAPI de 6 líneas; §9 excluye un
       segundo runtime backend y §16.3 no construye Notifications.
-- [ ] Borrar `scripts/prepare_commit.sh` (script de un commit puntual ya hecho, referencia
-      archivos inexistentes) y `COMMIT_MESSAGE.txt` (borrador suelto en la raíz).
-- [ ] Limpiar `<modules>` de `pom.xml` y los 3 pasos muertos de `ci.yml` (tests Python,
-      pip-audit, lint de portals) que apuntan a rutas borradas.
-- [ ] Reescribir `README.md` — describe 5 microservicios, portales Next.js y apunta a
-      `carelink-srs.md`. Es lo primero que lee un revisor y hoy describe el sistema v1.0.
+- [x] Borrados `scripts/prepare_commit.sh` y `COMMIT_MESSAGE.txt`.
+- [x] `pom.xml` con un solo módulo; `ci.yml` sin los 3 pasos muertos ni el `|| true`
+      del build de Java — la máscara se fue junto con lo que ocultaba.
+- [x] `README.md` reescrito — describía 5 microservicios, portales Next.js y apuntaba a
+      `carelink-srs.md`, ya archivado.
+- [x] **`identity-service` nunca había arrancado.** `VerificationTokenRepository` era un
+      puerto sin adaptador (7 de 8 puertos implementados, ese en 0) y el contexto de
+      Spring no cargaba. Ningún test usaba `@SpringBootTest`, así que 22 tests verdes
+      convivían con una aplicación que no iniciaba. Adaptador JPA escrito +
+      `ApplicationContextLoadsTest`, verificado rompiéndolo a propósito.
+- [ ] **CI no ejecuta los tests de Java.** El paso es `mvn -DskipTests package`. El SRS
+      §15.3 lista "Unit + integration tests (Java) — fail on any failure" como paso 5 del
+      pipeline, y no existe. Se corrige en Sub-fase 1, junto con los otros gates de CI
+      (AC-03, AC-04) — no acá, para no adelantar trabajo de otra sub-fase.
+- [ ] **Tokens de verificación sin expiración.** El puerto `VerificationTokenRepository`
+      no contempla vencimiento; un token es válido para siempre. Agregarlo cambia la
+      semántica del contrato, así que va a los gaps de Identity de Sub-fase 2.
 - [x] Registro de ADRs: `ADR-008` estaba duplicado (el de infra Railway/Supabase colisionaba
       con el de GDPR/retención del SRS §17) y `ADR-00X-jwt-management` no tenía número.
       Renumerados a ADR-016 (marcado superado por ADR-012/ADR-015) y ADR-017. Añadidos
