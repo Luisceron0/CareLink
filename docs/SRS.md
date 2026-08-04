@@ -747,6 +747,26 @@ the more defensible posture for a system whose central design constraint is "mus
 handle real PHI." Portfolio presentation uses a recorded walkthrough + one-command local
 setup instead. Revisitable as its own decision later.
 
+### ADR-016 — Infra: Railway / Supabase / Upstash / Confluent Cloud (SUPERSEDED)
+**Status:** superseded by ADR-012 and ADR-015. Full text:
+`docs/adr/ADR-016-infra-railway-supabase-upstash-confluent.md`.
+Recorded here so the reversal is traceable rather than silent. Published originally as
+"ADR-008", colliding with this section's ADR-008 (GDPR erasure vs. Colombian retention);
+renumbered 2026-08-04. Its premise — "simplify development *without Docker*", managed
+Railway/Supabase deployment, Kafka via Confluent, Redis via Upstash — is contradicted
+point by point by ADR-012 (Docker Compose local), ADR-015 (no deployed environment) and
+§9 (no Kafka, no Redis, no second backend runtime). Not implemented; not to be
+implemented.
+
+### ADR-017 — JWT Key Management and Refresh Token Rotation
+**Status:** accepted, implemented. Full text: `docs/adr/ADR-017-jwt-key-management.md`.
+Formerly the unnumbered `ADR-00X-jwt-management.md` — an ADR without a number cannot be
+referenced, which defeats the point of the record. Describes the `JwtKeyProvider` port
+and its `Static`/`Jwks`/`Vault` adapters. ADR-004 decides *which* revocation mechanism;
+this ADR describes *how* it is structured. One correction applied on renumbering: its
+original text stored refresh tokens "in the DB/Redis" — Redis is not in the stack (§9),
+so PostgreSQL is the store.
+
 ---
 
 ## 18. Acceptance Criteria

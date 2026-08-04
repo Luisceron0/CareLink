@@ -1,7 +1,26 @@
-# ADR-00X — JWT Key Management & Refresh Token Rotation
+# ADR-017 — JWT Key Management & Refresh Token Rotation
 
 ## Estado
-Propuesto
+**Aceptado — implementado.** `JwtKeyProvider`, `StaticKeyProvider`, `JwksKeyProvider` y
+`VaultKeyProvider` existen en `services/identity-service/.../infrastructure/security`,
+con cobertura en `VaultKeyProviderTest` y `JwksAndRefreshIntegrationTest`.
+
+## Nota de numeración (2026-08-04)
+Este documento vivía como `ADR-00X-jwt-management.md`, sin número asignado. Un ADR sin
+número no se puede referenciar desde el SRS ni desde otro ADR, que es la única razón por
+la que existe la numeración. Pasa a ADR-017.
+
+## Relación con ADR-004
+ADR-004 decide *qué* mecanismo de revocación se adopta (JWKS respaldado por Vault, en vez
+de una tabla `revoked_tokens`). Este ADR detalla *cómo* se estructura: el puerto
+`JwtKeyProvider` y sus adaptadores. No compiten; ADR-004 es la decisión, ADR-017 el
+diseño que la implementa.
+
+## Corrección respecto del texto original
+El punto 4 dice que los refresh tokens se almacenan "en la BD/Redis". **Redis no forma
+parte del stack** (SRS §9 — nada de §5 lo requiere; ADR-016 quedó superado). El
+almacenamiento es PostgreSQL. El resto del ADR —hash HMAC-SHA256 y rotación one-time-use—
+se mantiene sin cambios.
 
 ## Contexto
 El SRS exige JWTs firmados con RS256 para access tokens y refresh tokens rotados on‑use (15m access, 7d refresh). Para ser seguras y sostenibles, las claves privadas no deben residir en el código ni en variables de entorno en texto claro en producción. Además, la validación de tokens debe soportar rotación de claves (`kid`) y fetch seguro de claves públicas (JWKS) cuando sean necesarias.

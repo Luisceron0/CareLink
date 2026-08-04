@@ -24,9 +24,44 @@ construir en 8 frentes a la vez.
       ClinicTrack como input histórico (no se borran, se mueven a `docs/archive/`)
 - [ ] `docker-compose.yml`: backend + PostgreSQL 16 + frontend (placeholder hasta
       Sub-fase 7) — ADR-012
-- [ ] Confirmar o cambiar nombre del sistema (SRS §20, item abierto)
+- [x] Confirmar o cambiar nombre del sistema (SRS §20, item abierto)
+      **Se mantiene CareLink.** El paquete Java es `com.carelink`, el SRS lo arrastra
+      como supuesto de trabajo y renombrar toca 800+ líneas de documentación por cero
+      ganancia técnica. Ítem cerrado, sale de "abiertos" del SRS §20.
+
+### Descubierto durante la Sub-fase 0 (no estaba en el plan original)
+- [ ] **El reactor Maven está roto.** `scheduling-service`, `clinical-service` y
+      `billing-service` declaran `<parent>` sin `<relativePath>`; Maven no resuelve el
+      POM padre y `./mvnw test` falla en la raíz. CI lo venía ocultando con `|| true`
+      (`ci.yml:17`). Se resuelve borrando los tres módulos, que además contradicen
+      §3.3 (clinical vive *dentro* de identity-service) y §16.3.
+- [ ] Borrar `portals/` — dos apps Next.js (patient + physician) que ADR-014 descarta
+      explícitamente a favor de una SPA única sin Next.js.
+- [ ] Borrar `services/notification-service/` — FastAPI de 6 líneas; §9 excluye un
+      segundo runtime backend y §16.3 no construye Notifications.
+- [ ] Borrar `scripts/prepare_commit.sh` (script de un commit puntual ya hecho, referencia
+      archivos inexistentes) y `COMMIT_MESSAGE.txt` (borrador suelto en la raíz).
+- [ ] Limpiar `<modules>` de `pom.xml` y los 3 pasos muertos de `ci.yml` (tests Python,
+      pip-audit, lint de portals) que apuntan a rutas borradas.
+- [ ] Reescribir `README.md` — describe 5 microservicios, portales Next.js y apunta a
+      `carelink-srs.md`. Es lo primero que lee un revisor y hoy describe el sistema v1.0.
+- [x] Registro de ADRs: `ADR-008` estaba duplicado (el de infra Railway/Supabase colisionaba
+      con el de GDPR/retención del SRS §17) y `ADR-00X-jwt-management` no tenía número.
+      Renumerados a ADR-016 (marcado superado por ADR-012/ADR-015) y ADR-017. Añadidos
+      al SRS §17.
+- [x] **Entorno:** el JDK local era 11 y el SRS exige 21 — nada compilaba. Instalado
+      OpenJDK 21. Línea base verificada: 22 tests verdes en `identity-service`.
 
 ## Sub-fase 1: Contención + Audit Log (todo lo demás depende de esto)
+- [ ] **Arreglar `migrations/` antes de agregarle nada** (descubierto en Sub-fase 0):
+      `0001_create_identity.sql` y `001_public_schema.sql` crean `tenants` y `users` con
+      formas incompatibles (`legal_name`/`contact_email` vs. `name`/`role`/`created_at`),
+      y como ambas usan `IF NOT EXISTS`, la segunda se saltea en silencio según el orden
+      lexicográfico. `002_tenant_schema_template.sql` modela `appointments` (Scheduling,
+      §16.3 no construido) en vez del dominio clínico de §10. Además
+      `scripts/create_tenant_schema.sql` invoca `\i` —meta-comando de psql— dentro de un
+      `EXECUTE` server-side, donde no puede funcionar. Adoptar Flyway acá (§9) y
+      consolidar, no apilar una migración más encima.
 - [ ] `migrations/003_demo_marker.sql` + `DemoModeGuard` — AC-01, AC-02
 - [ ] CI: tracked-database check (AC-03) + single-auth-implementation check (AC-04)
 - [ ] `AuditLog` entity — append-only, trigger de PostgreSQL bloqueando UPDATE/DELETE
