@@ -1,60 +1,99 @@
-# TODO — CareLink
+# Plan activo: Milestone 1 (unificado) — CareLink + dominio clínico ClinicTrack ESE
+**Inicio:** 2026-08-03
+**Objetivo:** un sistema multi-tenant con Identity endurecido y el dominio clínico completo
+de ClinicTrack (Patient → Encounter → Triage → Diary/Knowledge Engine → Interconsultations
+→ Labs/Pharmacy) construido como 9 sub-fases verticales, cada una demostrable por sí sola.
 
-## Sesión actual
+**Nota de alcance (ADR-013 adenda):** este milestone es más grande de lo que Arch-Sentinel
+recomendó — decisión del autor, respetada, disidencia documentada en
+`docs/adr/ADR-013-fusion-carelink-clinictrack.md`. La estructura en sub-fases existe para
+que un corte de tiempo en cualquier punto deje algo demostrable, no un sistema a medio
+construir en 8 frentes a la vez.
 
-- [x] Crear archivo de instrucciones de Copilot en `.github/copilot-instructions.md`
-- [x] Crear carpeta `tasks/` con archivos persistentes
-- [x] Crear `tasks/lessons.md`
-- [ ] Verificar estructura documental base (`docs/SRS.md`, `docs/API.md`, `docs/DATA_MODEL.md`, `docs/adr/`)
-- [ ] Definir siguiente tarea de desarrollo (MVP vertical slice)
+## Sub-fase 0: Higiene de repositorio (bloquea todo)
+- [ ] Eliminar `services/api-gateway-identity/` — ADR-010
+- [ ] `git rm --cached test_identity.db`; `*.db` a `.gitignore`
+- [ ] Decidir `git filter-repo` para purgar `test_identity.db` del historial
+- [ ] Consolidar a un solo `docs/SRS.md` v3.0; archivar `carelink-srs.md` y el SRS de
+      ClinicTrack como input histórico (no se borran, se mueven a `docs/archive/`)
+- [ ] `docker-compose.yml`: backend + PostgreSQL 16 + frontend (placeholder hasta
+      Sub-fase 7) — ADR-012
+- [ ] Confirmar o cambiar nombre del sistema (SRS §20, item abierto)
 
-### Preparación para commit/infra
-- [x] Crear ADR-008 — Infra: Railway / Supabase / Upstash / Confluent (`docs/adr/ADR-008.md`)
-- [x] Añadir script `scripts/prepare_commit.sh` para preparar commit
-- [x] Actualizar `tasks/todo.md` con pasos de commit y ADR
-- [ ] Ejecutar tests y linters localmente antes de push
-- [ ] Ejecutar `scripts/prepare_commit.sh` y hacer `git push` (requiere credenciales)
+## Sub-fase 1: Contención + Audit Log (todo lo demás depende de esto)
+- [ ] `migrations/003_demo_marker.sql` + `DemoModeGuard` — AC-01, AC-02
+- [ ] CI: tracked-database check (AC-03) + single-auth-implementation check (AC-04)
+- [ ] `AuditLog` entity — append-only, trigger de PostgreSQL bloqueando UPDATE/DELETE
+- [ ] `AuditAspect` (AOP) — intercepta métodos `@Auditable`, persiste transaccionalmente
+      con la operación principal; si la operación falla, registra `result = ERROR`
+- [ ] Test: usuario de aplicación de la DB no tiene grant DELETE sobre `audit_log` — AC-10
+- [ ] Test: cada lectura de PHI produce exactamente 1 fila nueva en `audit_log` — AC-07
+      (test placeholder hasta que exista una entidad PHI real en Sub-fase 2)
+
+## Sub-fase 2: Identity (gaps) + Patient + ClinicalEncounter
+- [ ] `SchemaProvisioner.provisionSchema` acepta `TenantSlug`, revalida en el adapter — AC-05
+- [ ] Rate limiting de login: 5 intentos → lockout 15 min + alerta
+- [ ] `Patient` entity + value objects (documento, tipo sangre, alergias, afiliación EPS/
+      SISBEN opcional) — FR-CLN-01
+- [ ] `EncryptionService` (AES-256-GCM, IV aleatorio por operación, clave por tenant) —
+      aplicado a columnas PHI de `Patient`
+- [ ] Test: SELECT directo sobre columna cifrada no devuelve texto plano — AC-09
+- [ ] `ClinicalEncounter` con firma (soft signature), inmutable a nivel DB tras firmar —
+      FR-CLN-02
+- [ ] Test: PUT sobre encounter firmado → 409 — AC-08
+- [ ] Autorización cross-tenant y cross-`service_id` en todo endpoint clínico
+- [ ] Test: lectura cross-tenant → 403 — AC-06; lectura cross-service dentro del mismo
+      tenant → 403 — AC-06b (cobertura 100% en este path)
+
+## Sub-fase 3: Admissions + Triage
+- [ ] `Admission` entity + clasificación Triage Manchester (prioridad 1–5) — FR-CLN-03
+- [ ] Vínculo `Admission` → `ClinicalEncounter` cuando se abre uno
+- [ ] Tests de flujo: ingreso → triage → apertura de encounter
+
+## Sub-fase 4: Diario de enfermería + Motor de Conocimiento
+- [ ] `HealthDiaryEntry` + `VitalSigns` + `HealthIntervention` (NIC) +
+      `InterventionOutcome` (NOC) + `MedicationAdministration` — FR-CLN-04, FR-CLN-05
+- [ ] Índice compuesto `(diagnosis_code, nic_code, effectiveness)` — ADR-006
+- [ ] Endpoint `GET /api/v1/knowledge/search` — JPQL ad-hoc, sin vista materializada
+- [ ] Enforcement de k-anonimato: `COUNT(DISTINCT patient_id) >= K_ANONYMITY_THRESHOLD`
+      (default 5) — FR-CLN-07
+- [ ] Test: combinación casi-única de filtros → resultado suprimido, no vacío-silencioso
+      — AC-14
+- [ ] Verificar que la query del motor no concatena filtros de usuario sin parametrizar
+      (§8.4 aplica también acá, no solo al audit log)
+
+## Sub-fase 5: Interconsultas
+- [ ] `InterconsultationRequest` + `InterconsultationResponse` — FR-CLN-08
+- [ ] Validación de acceso del `SPECIALIST` **en cada request**, nunca cacheada — FR-CLN-10
+- [ ] `Prescription` originada en interconsulta se vincula al `ClinicalEncounter` raíz —
+      FR-CLN-09
+- [ ] Test: grant → close → nuevo request del specialist → 403 — AC-13
+
+## Sub-fase 6: Laboratorio + Farmacia
+- [ ] `LabOrder` + `LabResult` con flag de valor crítico — FR-CLN-11
+- [ ] `Prescription` (si no vino de Sub-fase 5) + `DispensationRecord` + índice de
+      adherencia — FR-CLN-12
+- [ ] Warning (no bloqueo) de conflicto alergia/misma clase de medicamento activa
+
+## Sub-fase 7: Frontend
+- [ ] React 18 + Vite + Tailwind — SPA única, vistas por rol (§4) — ADR-014
+- [ ] Vistas: Admisiones, Encuentro clínico, Diario de enfermería, Motor de Conocimiento
+      (con mensaje explícito cuando k<5 — FR-CLN-07 UX), Interconsultas, Labs, Farmacia
+- [ ] `docker-compose.yml` completa el placeholder de Sub-fase 0 con el frontend real
+
+## Sub-fase 8: Verificación de seguridad end-to-end
+- [ ] Ampliar `.semgrep/` a concatenación JPQL, no solo `String sql = "..." + $X`
+- [ ] `sqlmap --level 3` contra instancia local — cubre vector de cabeceras — AC-11
+- [ ] Reporte commiteado en `docs/security/`
+- [ ] CI en verde real: quitar cualquier `|| true` remanente; confirmar con un branch de
+      prueba que un test roto pone CI en rojo
+
+## Criterios de completitud del milestone
+- [ ] Todos los AC de §18.1 y §18.2 del SRS v3.0 en "Pass"
+- [ ] `docs/SRS.md` §5 y §16.1 actualizados con el estado real por módulo
+- [ ] `tasks/lessons.md` actualizado
+- [ ] Walkthrough grabado (GIF/video) para presentación de portafolio — sustituye al
+      demo público que se decidió no desplegar (ADR-015)
 
 ## Revisión
-
-Pendiente al cierre de la sesión.
-
-## Implementar servicio `api-gateway-identity` (MVP mínimo)
-
-- [x] Planificar pasos en la lista de tareas del agente
-- [x] Añadir scaffold FastAPI y modelos Pydantic
-- [x] Implementar POST `/api/v1/auth/register` (no persistente)
-- [x] Añadir tests (`tests/test_register.py`) y ejecutar
-- [x] Actualizar `docs/API.md` con el endpoint
-- [ ] Ejecutar linters y revisar resultados
-
-## Próximos pasos implementados
-
-- [ ] Añadir herramientas dev y Makefile para el servicio `api-gateway-identity`
-- [ ] Implementar `POST /api/v1/tenants/register` (mínimo)
-- [ ] Añadir tests para tenant register y ejecutar
-- [ ] Ejecutar linter (`ruff`) y typecheck (`mypy`) y corregir warnings
-
-## FASE 0 — Fundación (ejecutada)
-
-Fase 0 completada (archivos y scaffolds iniciales creados). Pendientes de verificación automática:
-
-- [x] F0-T01 — Estructura del monorepo
-- [x] F0-T02 — Configuración de servicios Java
-- [x] F0-T03 — Configuración de Notification Service (Python)
-- [x] F0-T04 — Configuración de portales Next.js
-- [x] F0-T05 — Esquema de base de datos inicial
-- [x] F0-T06 — Pipeline CI/CD base
-
-Notas:
-- Se generaron scaffolds y archivos iniciales para cada tarea. Quedan por ejecutar pasos de verificación (tests, linters y builds) en los servicios individuales.
-
-Siguiente: esperar checkpoint de FASE 0 según `tasks/PROJECT_PLAN.md` (esta fase no requiere revisión humana por política del plan).
-### Revisión final
-
-Se implementó un servicio mínimo con validación Pydantic y tests básicos. En producción falta:
-
-- Persistencia por tenant y cifrado de PHI
-- Emisión de audit logs para accesos/creaciones de PHI
-- Validaciones adicionales de negocio y rate limiting
-
+[Se completa al cerrar el milestone]
