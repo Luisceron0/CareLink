@@ -11,7 +11,13 @@ que un corte de tiempo en cualquier punto deje algo demostrable, no un sistema a
 construir en 8 frentes a la vez.
 
 ## Sub-fase 0: Higiene de repositorio (bloquea todo)
-- [ ] Eliminar `services/api-gateway-identity/` — ADR-010
+- [x] Eliminar `services/api-gateway-identity/` — ADR-010
+      Evidencia: `grep -rn "HS256\|dev-secret" services/` sin coincidencias. Se
+      eliminaron también los wrappers de raíz que solo servían a ese servicio
+      (`requirements.txt`, `run-identity-tests.sh`, `run-identity-dev-checks.sh`).
+      **AC-04 no cerrado todavía:** su verificación es un gate de CI, y ese gate es
+      tarea de Sub-fase 1. Hoy la condición se cumple, pero nada la hace bloqueante
+      (lección del `|| true`: no dar por existente un gate que no existe).
 - [ ] `git rm --cached test_identity.db`; `*.db` a `.gitignore`
 - [ ] Decidir `git filter-repo` para purgar `test_identity.db` del historial
 - [ ] Consolidar a un solo `docs/SRS.md` v3.0; archivar `carelink-srs.md` y el SRS de
