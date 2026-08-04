@@ -1,8 +1,828 @@
 # CareLink — Software Requirements Specification (SRS)
 
-Documento espejo del SRS principal de la raíz del repositorio.
+**Version:** 3.0 — Unified (CareLink architecture + ClinicTrack ESE clinical domain)
+**Status:** Draft — pending author approval
+**Artifact type:** Reference implementation. **Not a product.** See §1.6.
+**Author:** Luis Alejandro Cerón Muñoz
+**Technical reviewer:** Arch-Sentinel
+**Date:** 2026-08-03
+**Supersedes:** CareLink SRS v2.0 (2026-08-03) and ClinicTrack ESE SRS v1.2.0 (June 2026) —
+both are archived as source input; this document is the single source of truth from
+approval onward.
+**Repository:** github.com/Luisceron0/CareLink (name carried forward as working
+assumption — see §20 changelog; cheap to rename before first commit of this milestone)
+**Stack (implemented today):** Java 21 · Spring Boot 3.3.x · PostgreSQL 16
+**Stack (this milestone, to be built):** React 18 + Vite (frontend) · PostgreSQL 16 ·
+Docker Compose (local reproducibility)
+**Stack (specified, not built, later milestones):** Kafka, Redis — not required by
+anything in scope; return if a future milestone needs them.
 
-Ver versión completa en: `carelink-srs.md`.
+> **Single source of truth.** One SRS file. No mirrors, no per-service duplicate specs.
 
-> Nota: este archivo existe para alinear la ruta esperada por `.github/copilot-instructions.md`.
-> En la siguiente iteración se puede consolidar una única fuente de verdad si deseas.
+---
+
+## Table of Contents
+
+1. [Introduction](#1-introduction)
+2. [Problem and Market Context](#2-problem-and-market-context)
+3. [System Overview](#3-system-overview)
+4. [User Roles and Personas](#4-user-roles-and-personas)
+5. [Functional Requirements](#5-functional-requirements)
+6. [Non-Functional Requirements](#6-non-functional-requirements)
+7. [Regulatory Compliance Framework](#7-regulatory-compliance-framework)
+8. [Security Architecture](#8-security-architecture)
+9. [Technology Stack](#9-technology-stack)
+10. [Data Model](#10-data-model)
+11. [API Specification](#11-api-specification)
+12. [Internationalization](#12-internationalization)
+13. [Testing Strategy](#13-testing-strategy)
+14. [Observability](#14-observability)
+15. [Deployment Architecture](#15-deployment-architecture)
+16. [Scope of Implementation](#16-scope-of-implementation)
+17. [Architectural Decisions (ADRs)](#17-architectural-decisions-adrs)
+18. [Acceptance Criteria](#18-acceptance-criteria)
+19. [Glossary](#19-glossary)
+20. [Revision History](#20-revision-history)
+
+---
+
+## 1. Introduction
+
+### 1.1 Purpose
+
+CareLink is a reference implementation of a multi-tenant clinical platform. This
+revision integrates a second source specification — ClinicTrack ESE, originally designed
+as a single-organization system for Colombian public hospitals (ESE) — as the clinical
+domain module of CareLink, rather than as a separate system. The merge decision, and
+Arch-Sentinel's recorded technical dissent about it, are in ADR-013 (§17).
+
+### 1.2 Scope
+
+This SRS describes the full specified platform. What is built, what is scheduled for this
+milestone, and what is deliberately unbuilt are three different lists — §16. An ESE
+(public hospital) is modeled as **one tenant** of the multi-tenant architecture; nothing
+in the clinical domain assumes there is only ever one organization using the system.
+
+### 1.3 Definitions, Acronyms, Abbreviations
+
+See §19 Glossary — merged from both source documents (Colombian healthcare terms:
+CIE-10, NANDA-I/NIC/NOC, ESE, EPS, SISBEN, DIVIPOLA; plus platform terms: tenant, PHI,
+demo-mode).
+
+### 1.4 References
+
+- Resolución 1995/1999 — MinSalud Colombia: manejo de Historia Clínica
+- Ley 1581/2012 — Protección de Datos Personales (Colombia)
+- Decreto 1377/2013 — reglamenta Ley 1581
+- Ley 23/1981 — Ética Médica Colombia
+- Resolución 2654/2019 — MinSalud: telemedicina y TIC en salud
+- MSPI — MinTIC: marco de seguridad para entidades públicas
+- HIPAA Security Rule, GDPR (retained from CareLink v2.0 for the private-clinic tenant
+  archetype — see §7)
+- FHIR R4, CIE-10, NANDA-I, NIC, NOC
+- OWASP Top 10 2025
+
+### 1.5 Portfolio Context
+
+This system is a technical portfolio project. Demo data is 100% synthetic. The system is
+not certified as medical software (Class II/III equivalent) and must not be used with
+real patient data under any circumstance. See §1.6 for the enforceable version of this
+statement.
+
+### 1.6 Nature of the Artifact and Limits of Use
+
+CareLink is a **reference implementation**, not a product and not on a path to becoming
+one. This governs every decision below it, including the decision to expand this
+milestone's scope (§16.2, ADR-013 adenda).
+
+**This system must NOT be used to:**
+- Store, process, or transmit health information about real people (PHI)
+- Support real clinical, triage, prescribing, or dispensing operations
+- Be deployed to a production environment under any configuration
+
+**Containment guarantees (verifiable, not declarative):**
+- Startup fails if `DEMO_MODE` is not `true`
+- Startup fails against any database that does not carry the demo stamp
+- No production environment is defined in this SRS or in the pipeline
+- The only admissible data is synthetic, generated by the repository seed
+- No public demo is deployed for this milestone (§15) — the smallest attack surface is
+  the one that doesn't exist
+
+**What it IS:** a complete specification with a verified subset implemented. Sections
+marked *SPECIFIED — NOT BUILT* document design, not delivered functionality.
+
+---
+
+## 2. Problem and Market Context
+
+Two problem statements are carried forward, unified under one architecture:
+
+**Private clinic (original CareLink persona):** small/medium clinics without digital
+tooling for scheduling, records, and billing. Self-service onboarding, subscription
+model. **Not built this milestone** — no billing, no self-registration flow exists yet.
+Retained as a supported tenant archetype for later milestones (§16.3).
+
+**Public hospital / ESE (ClinicTrack persona):** Colombian public hospitals (Empresas
+Sociales del Estado) with a documented gap in electronic clinical records, nursing
+follow-up, and access auditing compared to larger private HIS systems. IT-provisioned,
+not self-service. **This is the milestone's build target.**
+
+Both personas share the same underlying need — a trustworthy, auditable clinical record
+— which is why the domain model unifies rather than forking. What differs is
+provisioning and commercial model, which are onboarding-layer concerns, not data-model
+concerns.
+
+---
+
+## 3. System Overview
+
+### 3.1 Product Perspective
+
+Three-layer web system: backend REST (Spring Boot 3, Java 21), relational database
+(PostgreSQL 16), frontend SPA (React 18 + Vite). Single deployable backend per
+environment; the multi-tenant architecture isolates organizations at the schema level,
+so "one ESE" and "many private clinics" are the same system under different tenant rows.
+
+### 3.2 Architecture Overview
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                CLIENT (Browser)                                │
+│           React 18 + Vite + Tailwind CSS (single SPA,          │
+│           role-based views — no separate portal apps)          │
+└────────────────────────┬───────────────────────────────────────┘
+                          │ HTTPS / TLS 1.2+
+┌────────────────────────▼───────────────────────────────────────┐
+│                  API — Spring Boot 3 (identity-service)         │
+│  ┌────────────┐  ┌───────────────┐  ┌───────────────────────┐  │
+│  │ JwtFilter  │  │ Controllers   │  │ AuditAspect (AOP)     │  │
+│  │ RS256/JWKS │  │ @PreAuthorize │  │ @Auditable interceptor│  │
+│  └────────────┘  └───────┬───────┘  └───────────────────────┘  │
+│                          │                                      │
+│  ┌───────────────────────▼───────────────────────────────────┐ │
+│  │  Application layer — use cases (hexagonal, per §5 module) │ │
+│  │  Tenant + service_id validated on every request            │ │
+│  └───────────────────────┬───────────────────────────────────┘ │
+│                          │                                      │
+│  ┌───────────────────────▼───────────────────────────────────┐ │
+│  │  Infrastructure — JPA/Hibernate adapters                   │ │
+│  │  + EncryptionService (AES-256-GCM, random IV, per-tenant   │ │
+│  │    key, §8)                                                 │ │
+│  └───────────────────────┬───────────────────────────────────┘ │
+└──────────────────────────┼──────────────────────────────────────┘
+                            │ JDBC
+┌──────────────────────────▼──────────────────────────────────────┐
+│          PostgreSQL 16 — schema-per-tenant + append-only          │
+│          audit_log with DB trigger (no UPDATE/DELETE grant)       │
+└────────────────────────────────────────────────────────────────┘
+```
+
+> **Status of this diagram:** target architecture for this milestone. `identity-service`
+> exists and is being hardened (§16.2 Fase 0–1). The clinical module (Patient, Encounter,
+> Triage, Diary, Knowledge Engine, Interconsultations, Labs, Pharmacy) is the build target
+> — not yet built as of this SRS's approval. Frontend does not exist yet.
+
+### 3.3 Bounded Contexts
+
+- **Identity** — tenants, users, roles, sessions. Owns `TenantSlug`, auth, RBAC.
+- **Clinical Records** — patient, encounter, diagnosis, nursing diary, knowledge engine,
+  interconsultations, labs, pharmacy. Owns PHI. Depends on Identity for tenant/user
+  context; never the reverse.
+
+Two contexts, not eight modules floating independently — the modules from ClinicTrack
+(§5.3–§5.10) are sub-domains inside the single Clinical Records bounded context, sharing
+one schema per tenant and one audit mechanism. This is a deliberate correction relative
+to treating each ClinicTrack "F-0X" as its own service: eight microservices for a
+solo-developer portfolio project would be its own documented mistake.
+
+---
+
+## 4. User Roles and Personas
+
+| Role | Origin | Description | Access scope |
+|---|---|---|---|
+| `TENANT_ADMIN` | CareLink | Administers a tenant (clinic or ESE) | Full within tenant |
+| `PHYSICIAN` | Both | Creates/signs clinical encounters, diagnoses, prescribes | Patients in their service, or via active interconsultation |
+| `NURSE` | ClinicTrack | Writes health diary entries, vitals, interventions, medication administration | Patients in their service |
+| `SPECIALIST` | ClinicTrack | Responds to interconsultation requests | **Only** patients with an active interconsultation addressed to them — access revoked when the interconsultation closes (RF-CLN-10.3) |
+| `PHARMACIST` | ClinicTrack | Dispenses prescriptions, tracks adherence | Prescriptions in their service |
+| `LAB_TECH` | ClinicTrack | Registers lab orders and results | Orders in their service |
+| `ADMISSIONS` | ClinicTrack | Patient registration, admission, triage intake | Demographic + admission data, not clinical notes |
+| `AUDITOR` | Both | Read-only access to `audit_log` | Audit log only, no PHI read path |
+
+`service_id` (department, e.g. "Urgencias", "Consulta Externa") scopes access **within**
+a tenant, orthogonal to tenant isolation. A `PHYSICIAN` in Urgencias of tenant A cannot
+read patients of Consulta Externa in tenant A without explicit service reassignment, and
+never patients of tenant B under any role.
+
+---
+
+## 5. Functional Requirements
+
+### 5.1 Identity and Tenant Management
+
+> **Status: BUILT (partial).** `services/identity-service`. Gaps tracked in §16.2 Fase 0–1.
+
+#### FR-ID-01 — Tenant Registration
+Self-registration creates an isolated tenant schema, assigns `TENANT_ADMIN`, generates a
+tenant slug (validated `^[a-z0-9-]{3,64}$` at the sink — ADR-010 lesson). For the ESE
+archetype, registration is IT-provisioned rather than self-service; the same schema
+provisioning path is used either way — provisioning mechanism, not the domain, differs.
+
+#### FR-ID-02 — User Management
+`TENANT_ADMIN` invites users, assigns roles (§4) and `service_id`. Deactivation retains
+audit history permanently.
+
+#### FR-ID-03 — Authentication
+Email + password, Argon2id. JWT access token (RS256, 15 min or 8h — see ADR-004 for which
+value applies and why) + refresh token, HttpOnly cookie, rotated on use, revoked on
+password change. Rate limiting: 5 failed attempts / 60s / IP → lockout + alert
+(Bucket4j or equivalent).
+
+#### FR-ID-04 — Session Security
+Concurrent session limit: 3 per user. Token revocation via CareLink's Vault-backed JWKS
+approach (ADR-004 — supersedes ClinicTrack's simpler `revoked_tokens` table, which was a
+Railway-RAM-constrained simplification, not a design preference, and is moot once no
+public demo is deployed, §15).
+
+### 5.2 Scheduling
+
+> **Status: SPECIFIED — NOT BUILT.** Retained from CareLink for the private-clinic
+> archetype (§2). Not required by the ESE clinical domain, which uses Admissions +
+> Triage instead (§5.4).
+
+### 5.3 Patient Management
+
+> **Status: TO BE BUILT — Milestone 1, Sub-fase 2.**
+
+#### FR-CLN-01 — Patient Registration
+Captures: full name, document type + number (with i18n validation — Colombian cédula vs.
+other formats), date of birth, sex, contact, emergency contact, blood type, allergies,
+active medications, and — for the ESE archetype — health-system affiliation context
+(EPS/SISBEN/regime type). Fields not applicable to a given tenant archetype are optional,
+not hidden; the schema is shared.
+
+### 5.4 Clinical Encounter, Admissions and Triage
+
+> **Status: TO BE BUILT — Milestone 1, Sub-fase 2 (Encounter) and Sub-fase 3 (Triage).**
+
+#### FR-CLN-02 — Clinical Encounter
+A `PHYSICIAN` creates an encounter: chief complaint, exam, diagnosis (CIE-10), treatment
+plan, prescriptions, follow-up. Signed via authenticated action; immutable after signing
+at the DB level (not only application logic — Ley 527/1999 and Res. 1995/1999 both
+require this). Amendments are new versioned entries.
+
+#### FR-CLN-03 — Admissions and Triage
+Registers hospital admission and classification (Manchester Triage, priority 1–5) for
+urgencias and consulta externa. Links to the encounter once one is opened.
+
+### 5.5 Nursing Health Diary
+
+> **Status: TO BE BUILT — Milestone 1, Sub-fase 4.**
+
+#### FR-CLN-04 — Health Diary Entry
+`NURSE` records daily entries per patient: vital signs, interventions (NIC-coded),
+observations, medication administration. Not necessarily tied to an active encounter —
+follow-up can span the admission independent of encounter boundaries (per ClinicTrack
+domain model, §10).
+
+#### FR-CLN-05 — Intervention Outcome
+Each intervention records an outcome (NOC-coded) and effectiveness rating, feeding the
+Knowledge Engine (§5.6).
+
+### 5.6 Experiential Knowledge Engine
+
+> **Status: TO BE BUILT — Milestone 1, Sub-fase 4 (this is the most distinctive feature
+> of the merged system — see ADR-006, ADR-007).**
+
+#### FR-CLN-06 — Knowledge Search
+Staff query past interventions by diagnosis (CIE-10) and/or NANDA diagnosis, optionally
+filtered by age range and sex, to see what interventions were used and how effective they
+were for similar prior cases.
+
+#### FR-CLN-07 — k-Anonymity Enforcement (non-negotiable, ADR-007)
+The engine returns **no results** if `COUNT(DISTINCT patient_id) < K_ANONYMITY_THRESHOLD`
+(default 5, configurable by env var) for the active diagnosis + intervention + filter
+combination. A rare diagnosis combined with a narrow age band and sex can be unique
+enough to re-identify a patient even in aggregate — this is a real privacy risk in
+smaller ESEs, not a theoretical one, and is why this requirement is not optional. UI shows
+an explicit "insufficient data" message when k is not met, never an empty-looking result
+that could be misread as "no prior cases."
+
+### 5.7 Interconsultations
+
+> **Status: TO BE BUILT — Milestone 1, Sub-fase 5.**
+
+#### FR-CLN-08 — Request and Response
+A `PHYSICIAN` requests a `SPECIALIST` opinion on a patient. The specialist can only read
+that patient's record while the interconsultation is open.
+
+#### FR-CLN-09 — Prescriptions from Interconsultation
+A prescription issued by the specialist through their response links back to the root
+encounter for full traceability.
+
+#### FR-CLN-10 — Temporal Access Revocation (security-critical — STRIDE, §8)
+Access granted by an interconsultation is validated **on every request**, not cached at
+grant time. When the interconsultation closes, the next request from that specialist for
+that patient is denied — there is no persisted "still has access" state to go stale.
+
+### 5.8 Laboratory
+
+> **Status: TO BE BUILT — Milestone 1, Sub-fase 6.**
+
+#### FR-CLN-11 — Lab Orders and Results
+`LAB_TECH` and `PHYSICIAN` manage orders linked to an encounter; results include a
+critical-value flag that must trigger notification to the ordering physician (in-app,
+no email/SMS integration this milestone — see §16.4).
+
+### 5.9 Pharmacy
+
+> **Status: TO BE BUILT — Milestone 1, Sub-fase 6.**
+
+#### FR-CLN-12 — Prescription, Dispensation, Adherence
+Prescription: medication, dosage, frequency, duration, route, prescriber. Dispensation
+recorded by `PHARMACIST`. Adherence index computed as administered/prescribed doses over
+a period. Conflict warnings (allergy, active same-class prescription) warn, never block.
+
+### 5.10 Audit Trail
+
+> **Status: TO BE BUILT — Milestone 1, Sub-fase 1 (built early — every other module
+> depends on it existing first).**
+
+#### FR-CLN-13 — Immutable Audit Log
+Every PHI read/write/export generates an entry: timestamp, user, role, patient, action,
+`service_id`, source IP, session ID. Append-only at the DB level via trigger — no
+application code path issues UPDATE or DELETE, and the application DB user lacks the
+grant regardless (defense in depth, AC-10). Header-derived fields (`source_ip`) written
+through parameterized statements only (§8.4).
+
+### 5.11 Billing, Notifications, Reporting, Patient Portal
+
+> **Status: SPECIFIED — NOT BUILT.** Retained from CareLink v2.0 §16.3 for the
+> private-clinic archetype. Not required by the ESE domain. See §16.3/§16.4.
+
+---
+
+## 6. Non-Functional Requirements
+
+| Category | Requirement |
+|---|---|
+| Security | See §8 in full — this is not a secondary concern |
+| Performance | Knowledge Engine query <2s for ≤50k diary entries (ADR-006 basis) |
+| Availability | No SLA target this milestone — no production environment exists (§15) |
+| Usability | Functional on medium-speed connections; standard desktop browsers, no install |
+| Maintainability | Hexagonal layering enforced (§3.3); one bounded context per bounded context — no second Identity implementation, no per-module microservice split |
+| Portability | Docker Compose reproduces the full local stack (backend + Postgres + frontend) — ADR-012 |
+
+---
+
+## 7. Regulatory Compliance Framework
+
+> **Compliance posture.** These are design targets, not certifications. CareLink holds no
+> real PHI (§1.6), so no regulatory obligation is actually triggered by this artifact.
+> Demonstrating that the design accounts for the regulation is the goal — not conformance.
+
+| Norm | Relevance | Where it shows up in the design |
+|---|---|---|
+| Resolución 1995/1999 (MinSalud) | HC components, custody, 20-year retention, patient rights | Audit trail (FR-CLN-13), encounter immutability (FR-CLN-02) |
+| Ley 1581/2012 | Health data is sensitive; reinforced security measures | AES-256-GCM encryption, RBAC, audit trail, k-anonymity (FR-CLN-07) |
+| Decreto 1377/2013 | Obligations of the data controller | Mirrors Ley 1581 controls |
+| Ley 23/1981 | Medical secrecy, confidentiality | Role separation (§4); interconsultation-gated specialist access (FR-CLN-10) |
+| Resolución 2654/2019 | Telemedicine / cloud TIC in health | Relevant if a future milestone adds cloud deployment |
+| MSPI (MinTIC) | Security framework for public entities | Threat model (§8), containment guardrail (§15.4-equivalent) |
+| HIPAA / GDPR (CareLink legacy) | Retained for the private-clinic archetype only | Not exercised by the ESE domain; kept as design record for §16.3 |
+
+---
+
+## 8. Security Architecture
+
+### 8.1 Threat Model (STRIDE, merged)
+
+| Threat | Vector | Impact | Mitigation | Residual Risk |
+|---|---|---|---|---|
+| Cross-tenant PHI access | IDOR via API | CRITICAL | Schema-per-tenant + ownership validation on every request | Very Low |
+| Cross-service access within a tenant | Staff in one `service_id` reading another's patients | HIGH | `service_id` filter enforced in service layer, 100% test coverage on this path | Low |
+| Specialist access outlives interconsultation | Cached/stale authorization | CRITICAL — regulatory + patient harm | Access re-validated on every request against interconsultation status (FR-CLN-10) | Very Low |
+| Re-identification via Knowledge Engine | Rare diagnosis + narrow filters | HIGH — Ley 1581 violation | k-anonymity ≥5 enforced server-side, not UI-side (FR-CLN-07) | Low |
+| Audit trail tampering | Direct DB access | CRITICAL | Append-only trigger; app DB user has no UPDATE/DELETE grant on `audit_log` | Very Low |
+| Audit trail bypass (silent endpoint) | New endpoint forgets to log | HIGH | `@Auditable` + AOP interceptor — logging is cross-cutting, not per-developer discipline | Low |
+| SQL injection via HTTP headers | `User-Agent`/`X-Forwarded-For` written to audit log | CRITICAL | Headers are untrusted input; parameterized writes everywhere, logging included (§8.4) | Very Low |
+| DDL injection via tenant slug | Slug concatenated into `CREATE SCHEMA` | CRITICAL | Validated at the sink via `TenantSlug` value object, not only at the caller | Low |
+| JWT tampering (role escalation in payload) | Modified JWT | CRITICAL | RS256 signature validated before payload is read | Very Low |
+| Entity enumeration | Sequential IDs | MEDIUM | UUID v4 on all entities | Very Low |
+| Brute-force login | Automated attempts | HIGH | Rate limiting: 5/60s/IP → 429 + lockout | Low |
+| Unhandled exception discloses internals | Stack trace / field names in response | MEDIUM | `GlobalExceptionHandler`, generic response + request ID | Very Low |
+| Third party deploys this as a real clinical system | Public repo cloned, pointed at real DB | CRITICAL | `DemoModeGuard` boot failure + demo stamp requirement + no public demo (§15) | Low |
+
+### 8.2 OWASP Top 10 2025 Coverage
+
+Retained from CareLink v2.0 §8.2 — applies unchanged; the clinical module's specific
+sinks (encryption, audit log, knowledge engine) are covered by the STRIDE rows above and
+by §8.4.
+
+### 8.3 Encryption (ADR-003, merged from ClinicTrack ADR-001)
+
+AES-256-GCM at the application layer. IV: 96 bits, `SecureRandom.getInstanceStrong()`,
+generated per encryption operation — never reused. Stored value = base64(IV + ciphertext).
+Key: per-tenant (CareLink's model, stronger than ClinicTrack's single environment key —
+adopted because the multi-tenant architecture already requires per-tenant key material
+for Identity; reusing that infrastructure for PHI encryption avoids a second key-management
+mechanism). Known debt: key material in environment variable rather than a KMS is a
+single point of failure — documented, not blocking for this milestone (inherited from
+ClinicTrack ADR-001's honest framing of the same trade-off).
+
+### 8.4 Untrusted Input — HTTP Headers and Dynamic Identifiers (CWE-89-H)
+
+Unchanged from CareLink v2.0 §8.4 — six rules on headers as untrusted input, prepared
+statements on every DB write including audit logging, `Host` allowlisting, dynamic SQL
+identifiers validated at the sink, and `sqlmap --level 3` minimum before closing a SQLi
+audit. This section governs the Knowledge Engine's JPQL queries (§5.6) as much as the
+audit log — any query that concatenates a user-influenced filter value is in scope.
+
+### 8.5 Keys and Secrets
+
+- RS256 key pair generated outside the repo; injected as `JWT_PRIVATE_KEY` /
+  `JWT_PUBLIC_KEY`
+- `CLINIC_ENCRYPTION_KEY` per tenant, environment variable, never versioned
+- `KNOWLEDGE_ANONYMITY_THRESHOLD` (default 5)
+- `.env` gitignored; `.env.example` with names, no values
+
+---
+
+## 9. Technology Stack
+
+| Layer | Technology | Version | Rationale |
+|---|---|---|---|
+| Backend | Spring Boot | 3.3.x | Mature security ecosystem; existing `identity-service` code |
+| Database | PostgreSQL | 16 | ACID, JSONB for audit metadata, schema-per-tenant support |
+| Schema migration | Flyway | — | Version control of schema — essential once clinical tables exist |
+| Frontend | React 18 + Vite + Tailwind CSS | — | Single SPA, role-based views (ADR-014). No SSR need for an internal tool |
+| Local reproducibility | Docker Compose | — | Backend + Postgres + frontend in one command (ADR-012) |
+| Auth | RS256 + JWKS, Vault-backed key provider | — | Already built in `identity-service`; wins over ClinicTrack's simpler table-based revocation (ADR-004) |
+| Encryption | AES-256-GCM, application layer | — | §8.3 |
+
+Kafka, Redis, and any second backend runtime (FastAPI) are **not** part of this stack —
+not required by anything in §5, and adding them without a concrete requirement is exactly
+the kind of speculative infrastructure this SRS exists to avoid repeating.
+
+---
+
+## 10. Data Model
+
+```
+Tenant (schema-per-tenant boundary — an ESE or a private clinic, same shape)
+├── has many → User (roles per §4, scoped by service_id)
+└── has many → Patient
+    ├── has many → Admission
+    ├── has many → ClinicalEncounter
+    │   ├── has many → Diagnosis (CIE-10)
+    │   ├── has many → ClinicalNote (encrypted)
+    │   ├── has one  → NoteAmendment (optional, versioned)
+    │   ├── has many → LabOrder → has many → LabResult
+    │   ├── has many → InterconsultationRequest → has one → InterconsultationResponse
+    │   └── has many → Prescription → has many → DispensationRecord
+    ├── has many → HealthDiaryEntry
+    │   ├── has many → VitalSigns
+    │   ├── has many → HealthIntervention (NIC-coded) → has one → InterventionOutcome (NOC-coded)
+    │   └── has many → MedicationAdministration
+    └── has one  → LifeContext
+
+KnowledgeEngine (query view, not a table)
+└── aggregates from → HealthIntervention + Diagnosis (CIE-10) + AdherenceIndex
+    └── mandatory filter → COUNT(DISTINCT patient_id) >= K_ANONYMITY_THRESHOLD
+
+AuditLog (append-only, DB-level trigger enforced, cross-cutting via AOP)
+```
+
+**Key relationships (carried from ClinicTrack, verified against the merged auth model):**
+- `HealthDiaryEntry` associates to Patient + shift/date, not necessarily an open
+  `ClinicalEncounter`.
+- Specialist access to a Patient's record is mediated by `InterconsultationRequest` — no
+  active interconsultation, no access, re-checked per request (FR-CLN-10).
+- A `Prescription` originated by a specialist via `InterconsultationResponse` stays linked
+  to the root `ClinicalEncounter` for full traceability.
+- `Tenant` is the isolation boundary CareLink already enforces; every table above lives
+  inside the tenant's schema, including `AuditLog`.
+
+### 10.1 Required Indexes
+
+- Composite index on `(diagnosis_code, nic_code, effectiveness)` for the Knowledge Engine
+  (ADR-006) — sized for ≤50k entries per tenant without a materialized view.
+- `patient_id` + `tenant_id` composite on every clinical table (defense in depth alongside
+  schema isolation).
+
+---
+
+## 11. API Specification
+
+Endpoints follow the standard response envelope: `{"data": {...}, "timestamp": "..."}` on
+success, `{"error": {"code","message","status"}, "timestamp"}` on failure.
+
+Key addition from the merge:
+
+```
+GET /api/v1/knowledge/search?diagnosis={cie10}&nic={code}&age_min={n}&age_max={n}&sex={m|f}
+```
+Response includes the k-anonymity filter outcome explicitly — a suppressed result (k<5)
+is a distinct response shape from an empty result (§5.6, FR-CLN-07), so the frontend
+cannot render them identically by accident.
+
+Full endpoint inventory: [PENDIENTE — to be written alongside each sub-fase of §16.2, not
+speculatively upfront; an API contract written before the use case exists tends to be
+wrong].
+
+---
+
+## 12. Internationalization
+
+Primary locale: es-CO (Colombian Spanish), given the ESE domain's terminology (CIE-10 as
+used by MinSalud, DIVIPOLA, EPS/SISBEN affiliation types). Patient document validation
+supports Colombian cédula format as the default; other formats remain supported per
+CareLink's original i18n requirement for the private-clinic archetype, but are not the
+build focus this milestone. [PENDIENTE: confirm whether a second locale is needed for
+portfolio presentation purposes, e.g. en-US for international reviewers.]
+
+---
+
+## 13. Testing Strategy
+
+- **Unit:** domain value objects and use cases, no Spring context
+- **Integration:** Zonky embedded PostgreSQL — includes `DemoModeGuard`,
+  cross-tenant/cross-service denial, interconsultation revocation, k-anonymity threshold
+- **Security-specific:** `sqlmap --level 3` (§8.4), test asserting app DB user lacks
+  DELETE on `audit_log` (AC-10), test asserting encrypted columns are unreadable via
+  direct SELECT (AC-09)
+- 100% coverage requirement specifically on the `service_id` access-filter path (STRIDE
+  row "cross-service access") — inherited from ClinicTrack's own testing standard for that
+  exact risk, and worth keeping at that bar given it's the second most impactful IDOR
+  vector in this system after cross-tenant.
+
+---
+
+## 14. Observability
+
+Structured JSON logs, correlation ID per request. No distributed tracing this milestone —
+single backend service, tracing overhead isn't justified yet. Health checks (liveness +
+readiness) on the backend. Alerting: out of scope without a production environment to
+alert about (§15) — logs are inspected manually for a portfolio project at this stage.
+
+---
+
+## 15. Deployment Architecture
+
+### 15.1 Environments
+
+| Environment | Purpose | Data | Notes |
+|---|---|---|---|
+| Local | Development | Synthetic seed | Docker Compose — backend + Postgres + frontend (ADR-012) |
+| CI | Automated tests | Zonky embedded, ephemeral | GitHub Actions |
+| ~~Public demo~~ | — | — | **Not deployed this milestone** (ADR-015) — avoids taking on a free-tier infra constraint that would shape the architecture for a reason unrelated to the architecture itself, and keeps the attack surface at zero beyond local/CI |
+| ~~Production~~ | — | — | Does not exist, by design (§1.6) |
+
+### 15.2 Containment Guardrail
+
+Unchanged in mechanism from CareLink v2.0 §15.4: `DemoModeGuard` fails startup unless
+`DEMO_MODE=true`, `APP_ENV` is not a production-like value, and the target database
+carries the `SYNTHETIC_DATA_ONLY` stamp (`migrations/003_demo_marker.sql`). With no
+public demo target, this guardrail's practical job is protecting local/CI from
+accidental misconfiguration — still worth having, cheap to keep, and it's the same
+control regardless of whether a demo exists.
+
+### 15.3 CI/CD Pipeline
+
+```
+PR opened →
+  1. Semgrep (SAST) — fail on HIGH/CRITICAL, rules extended for JPQL concatenation (§8.4)
+  2. mvn dependency-check — fail on new CRITICAL
+  3. Gitleaks — fail on any secret
+  4. Tracked-database check — fail if git ls-files '*.db' non-empty
+  5. Unit + integration tests (Java) — fail on any failure, includes DemoModeGuard,
+     cross-tenant/cross-service/interconsultation-revocation/k-anonymity tests
+  6. Frontend: lint + build (once frontend exists, Sub-fase 7+)
+  7. Checkstyle
+```
+
+---
+
+## 16. Scope of Implementation
+
+### 16.1 Delivered and verified today
+
+- Tenant registration with schema-per-tenant provisioning (partial)
+- Password auth (Argon2id), JWT (RS256, JWKS, Vault key provider)
+- Refresh token rotation, hexagonal layering, unit + integration tests on Identity
+
+### 16.2 In scope — Milestone 1 (expanded per author decision, ADR-013 adenda)
+
+Full clinical domain of ClinicTrack, built as internal **vertical-slice sub-fases** —
+each sub-fase ends in something runnable and demonstrable, so a stop at any point still
+leaves a working artifact rather than eight half-built modules. See `tasks/todo.md` for
+the task-level breakdown; the sub-fases themselves are normative here:
+
+| Sub-fase | Delivers | Depends on |
+|---|---|---|
+| 0 | Repo hygiene: remove `api-gateway-identity`, purge `.db`, single SRS | — |
+| 1 | `DemoModeGuard` + Audit Log (append-only, AOP-intercepted) | Fase 0 |
+| 2 | Identity gaps closed + Patient + ClinicalEncounter (signed, immutable) | Fase 1 |
+| 3 | Admissions + Triage | Fase 2 |
+| 4 | Health Diary (NANDA/NIC/NOC) + Knowledge Engine (k-anonymity) | Fase 2 |
+| 5 | Interconsultations (with per-request revocation check) | Fase 2, 4 |
+| 6 | Labs + Pharmacy | Fase 2 |
+| 7 | Frontend (React + Vite, role-based SPA) covering Fases 1–6 | Fase 6 |
+| 8 | Security verification end-to-end: sqlmap, semgrep rule extension, CI gates blocking | Fase 7 |
+
+### 16.3 Specified — deliberately not built
+
+Billing, Scheduling (slot booking), Notifications (email/WhatsApp), Reporting, Patient
+Portal — retained from CareLink for the private-clinic archetype. OAuth2/TOTP MFA. Kafka
+event bus, Redis. None of these are required by the ESE domain that is this milestone's
+actual target.
+
+### 16.4 Out of scope permanently
+
+Production deployment target, real PHI under any circumstance, live third-party
+integrations (SMTP, WhatsApp, payment gateways), real patient onboarding, regulatory
+certification claims.
+
+---
+
+## 17. Architectural Decisions (ADRs)
+
+### ADR-001 — Schema-per-Tenant Multi-tenancy
+**Decision:** each tenant (private clinic or ESE) gets an isolated PostgreSQL schema.
+**Rationale:** strongest isolation guarantee available without separate databases per
+tenant; makes cross-tenant IDOR structurally harder, not just application-layer-checked.
+
+### ADR-002 — Hexagonal Architecture per Bounded Context
+**Decision:** domain/application/infrastructure layering, ports and adapters, applied to
+both Identity and Clinical Records.
+
+### ADR-003 — Encryption: AES-256-GCM, Random IV, Per-Tenant Key
+See §8.3. Supersedes ClinicTrack ADR-001's single-environment-key simplification; keeps
+its IV randomness requirement unchanged (that part was correct and non-negotiable either
+way).
+
+### ADR-004 — Token Revocation: Vault-backed JWKS over `revoked_tokens` table
+**Decision:** adopt CareLink's existing Vault + JWKS + refresh rotation mechanism rather
+than ClinicTrack's simpler PostgreSQL table.
+**Rationale:** ClinicTrack's simplification (ADR-002 in its source SRS) existed
+specifically to avoid a Redis dependency on Railway's free tier. With no public demo
+deployed this milestone (ADR-015), that constraint doesn't apply, and CareLink's
+mechanism is already built and tested.
+**Condition of review:** if a future milestone deploys a resource-constrained public
+demo, revisit — the simpler table may again be the right trade-off there specifically.
+
+### ADR-005 — Optimistic Locking for Slot Booking
+Retained from CareLink as a specified-not-built reference for the Scheduling module
+(§16.3) — not exercised this milestone.
+
+### ADR-006 — Knowledge Engine: ad-hoc JPQL with composite indexes
+**Decision:** JPQL over `health_intervention JOIN health_diary_entry JOIN patient` with
+GROUP BY on `nic_code, effectiveness`, backed by a composite index (§10.1).
+**Rationale:** for ≤50k entries per tenant, an indexed query meets <2s without the
+operational overhead of a materialized view (explicit refresh, cron, staleness
+management).
+**Condition of review:** if response time exceeds 1.5s with real seed volume, evaluate a
+materialized view or partial index per diagnosis.
+
+### ADR-007 — k-Anonymity Threshold k=5 in the Knowledge Engine
+**Decision:** the engine returns no results when `COUNT(DISTINCT patient_id) < 5` for a
+diagnosis + intervention + filter combination.
+**Rationale:** in intermediate-size ESEs, a rare diagnosis combined with a narrow
+age/sex filter can be unique enough to re-identify a patient in aggregate data — this
+violates Ley 1581/2012 and privacy-by-design even though the underlying data is
+synthetic in this artifact. Threshold is configurable via
+`KNOWLEDGE_ANONYMITY_THRESHOLD`.
+
+### ADR-008 — GDPR Erasure vs. Colombian Retention (Res. 1995/1999)
+Retained from CareLink v2.0: EU-tenant pseudonymization vs. Colombian 20-year minimum
+retention, resolved architecturally per patient jurisdiction. Relevant to the ESE
+archetype directly (20-year retention is a hard requirement here, not a design option).
+
+### ADR-009 — Portfolio Scope with Dual Containment
+Retained unchanged from CareLink v2.0 — the original decision to cut scope + enforce
+non-production mechanically. This SRS's Milestone 1 expansion (§16.2) operates inside
+that container, not outside it: no PHI, no production, no exception.
+
+### ADR-010 — Removal of `api-gateway-identity`
+Retained unchanged — the second, weaker Identity implementation is deleted, not merged.
+
+### ADR-011 — License
+Unresolved — `[PENDIENTE]`, blocks repository presentation, unchanged from v2.0.
+
+### ADR-012 — Docker Compose for Local Reproducibility
+**Decision:** local development uses Docker Compose (backend + PostgreSQL + frontend),
+superseding CareLink v2.0 §15.2's "no Docker in any environment" stance.
+**Rationale:** that stance made sense for a single Java service with a native-installed
+Postgres. It doesn't hold once the stack includes a frontend and the clinical domain's
+full local setup — three moving parts benefit from one reproducible command more than
+they benefit from avoiding a container runtime. ClinicTrack had already specified this
+correctly for the same reason.
+**Consequence:** `docker-compose.yml` is a required artifact of Sub-fase 0/1, not an
+afterthought.
+
+### ADR-013 — Fusion of CareLink and ClinicTrack ESE
+Full text and Arch-Sentinel's recorded dissent: see `docs/adr/ADR-013-fusion-carelink-clinictrack.md`.
+Summary: the author decided on a literal single-system fusion against the technical
+recommendation to keep two separate, narratively distinct repositories. Resolution
+adopted CareLink's architecture as substrate and ClinicTrack's domain as the Clinical
+Records implementation, with the four open points (tenancy, auth, frontend, deployment)
+closed as recorded there and reflected throughout this SRS.
+
+### ADR-014 — Frontend: React + Vite, Single SPA
+**Decision:** React 18 + Vite, one application with role-based views. No Next.js, no
+separate patient/physician portal apps.
+**Rationale:** this milestone's users are all staff (§4) — there is no patient
+self-service surface in the ESE domain, and CareLink's original two-portal design assumed
+one. SSR/SEO benefits of Next.js don't apply to an internal tool. Fewer apps to build and
+keep coherent, consistent with "one polished repo."
+
+### ADR-015 — No Public Demo This Milestone
+**Decision:** environments are local (Docker Compose) and CI only. No hosted public demo.
+**Rationale:** every realistic free-tier option (Railway, Render, Fly.io) imposes an
+infrastructure constraint unrelated to the system's actual design goals — exactly the
+trade-off that produced ClinicTrack's original ADR-002. Not deploying publicly removes
+that pressure entirely and reduces the attack surface to zero beyond local/CI, which is
+the more defensible posture for a system whose central design constraint is "must not
+handle real PHI." Portfolio presentation uses a recorded walkthrough + one-command local
+setup instead. Revisitable as its own decision later.
+
+---
+
+## 18. Acceptance Criteria
+
+### 18.1 Containment
+
+| ID | Criterion | Verification |
+|---|---|---|
+| AC-01 | Boot fails without `DEMO_MODE=true` | Integration test |
+| AC-02 | Boot fails against unstamped DB | Integration test, Zonky |
+| AC-03 | No `.db` file tracked | CI: `git ls-files '*.db'` empty |
+| AC-04 | One Identity implementation | CI grep for `HS256`/`dev-secret` |
+| AC-12 | Seed data synthetic only | No import path exists |
+
+### 18.2 Security of the built slice
+
+| ID | Criterion | Verification |
+|---|---|---|
+| AC-05 | Tenant slug injection rejected at the sink | Unit test, malicious slug input |
+| AC-06 | Cross-tenant read → 403 | Integration test |
+| AC-06b | Cross-`service_id` read within tenant → 403 | Integration test, 100% path coverage |
+| AC-07 | 1 PHI read → 1 audit log entry | Integration test |
+| AC-08 | Signed encounter modification → 409 | Integration test |
+| AC-09 | PHI columns unreadable via direct SELECT | Integration test |
+| AC-10 | App DB user lacks DELETE on `audit_log` | Integration test, DB grant check |
+| AC-11 | No SQLi, header vector included | `sqlmap --level 3`, report committed |
+| AC-13 | Interconsultation access denied after closure | Integration test — grant, close, re-request, expect 403 |
+| AC-14 | Knowledge Engine suppresses results when k<5 | Integration test with seeded near-unique combination |
+
+### 18.3 Specified, not verified
+
+Everything under §16.3 — no acceptance criteria are written for functionality that isn't
+built; a pending AC for unbuilt work would imply a roadmap this SRS doesn't commit to.
+
+---
+
+## 19. Glossary
+
+*(merged — Colombian healthcare terms from ClinicTrack, platform terms from CareLink)*
+
+| Term | Definition |
+|---|---|
+| ESE | Empresa Social del Estado — legal category of Colombian public hospitals |
+| EPS | Entidad Promotora de Salud — insurer, contributive regime |
+| SISBEN | Beneficiary identification system, subsidized regime affiliation |
+| DIVIPOLA | DANE geographic coding system |
+| CIE-10 | International Classification of Diseases, 10th revision (WHO) |
+| NANDA-I | North American Nursing Diagnosis Association International |
+| NIC | Nursing Interventions Classification |
+| NOC | Nursing Outcomes Classification |
+| Triage Manchester | Emergency classification system, priority 1–5 |
+| k-anonimato | Privacy property: each record indistinguishable from ≥k-1 others |
+| Interconsulta | Formal request for specialist evaluation of a patient |
+| Índice de adherencia | % of administered doses over prescribed doses in a period |
+| Append-only | Table permitting inserts only — no update, no delete |
+| Tenant | Isolation boundary — one clinic or one ESE, one schema |
+| PHI | Protected/Personal Health Information |
+| Demo mode | Enforced non-production state; see §15.2 |
+
+---
+
+## 20. Revision History
+
+| Version | Date | Author | Changes |
+|---|---|---|---|
+| CareLink 1.0 | March 2026 | L. Cerón | Original full SaaS spec |
+| ClinicTrack 1.2.0 | June 2026 | L. Cerón | ESE-focused HCE spec, approved for development |
+| CareLink 2.0 | 2026-08-03 | L. Cerón / Arch-Sentinel | Repositioned as portfolio reference implementation; containment guardrails; scope cut to Identity + Clinical mínimo |
+| **3.0 (this document)** | 2026-08-03 | L. Cerón / Arch-Sentinel | Unified CareLink + ClinicTrack ESE per author decision (ADR-013, dissent recorded). Milestone 1 expanded to full clinical domain, structured as 9 internal vertical-slice sub-fases (§16.2). Frontend decided: React+Vite single SPA (ADR-014). Deployment decided: no public demo, local+CI only (ADR-015). Docker Compose adopted for local reproducibility, superseding v2.0's no-Docker stance (ADR-012). Token revocation mechanism resolved in favor of CareLink's existing Vault/JWKS approach (ADR-004). System name carried forward as "CareLink" as a stated working assumption — cheap to rename before Sub-fase 0 starts. |
+
+### Open items carried forward
+
+| Item | Section | Blocking |
+|---|---|---|
+| License selection | ADR-011 | Repository presentation |
+| System name confirmation | Header | Cosmetic — rename before Sub-fase 0 if desired |
+| Second locale (en-US) for portfolio | §12 | Not blocking; nice-to-have |
+| Full endpoint inventory | §11 | Written per sub-fase, not upfront |
+| `test_identity.db` history purge (`git filter-repo`) | inherited from v2.0 | Repo hygiene, Sub-fase 0 |
