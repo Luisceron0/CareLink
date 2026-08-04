@@ -8,12 +8,19 @@ spring:
     password: ${DATABASE_PASSWORD:}
     driver-class-name: org.postgresql.Driver
 
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # El esquema es de Flyway, no de Hibernate. `validate-on-migrate` deja que un
+    # archivo de migración ya aplicado no se pueda editar en silencio.
+    validate-on-migrate: true
+
   jpa:
-    # `none`, deliberadamente. El esquema no lo gestiona Hibernate: las tablas se
-    # versionan en migrations/. Hoy ese directorio tiene migraciones en conflicto
-    # (0001_create_identity.sql y 001_public_schema.sql crean `tenants`/`users` con
-    # formas incompatibles) — se resuelve en Sub-fase 1 junto con la adopción de
-    # Flyway (SRS §9). Hasta entonces nada aplica migraciones automáticamente.
+    # `none`, deliberadamente: el esquema lo versiona Flyway. Hibernate no crea ni
+    # modifica tablas — un `ddl-auto` que genera esquema hace que la base real
+    # dependa de las anotaciones JPA en vez del archivo versionado, y la diferencia
+    # entre ambos aparece recién en producción (que acá no existe, pero el hábito
+    # importa).
     hibernate:
       ddl-auto: none
     open-in-view: false
@@ -63,8 +70,10 @@ logging:
     root: ${LOG_LEVEL:INFO}
 
 carelink:
-  # Contención (SRS §1.6, §15.2). ADVERTENCIA: hoy esto es solo una propiedad —
-  # `DemoModeGuard`, que hace fallar el arranque si no es `true` y si la base no
-  # lleva el sello SYNTHETIC_DATA_ONLY, es tarea de Sub-fase 1 (AC-01, AC-02).
-  # Mientras el guard no exista, este valor no protege nada.
+  # Contención (SRS §1.6, §15.2). Lo aplica DemoModeGuard: si demo-mode no es true,
+  # si app-env es un valor de producción, o si la base no lleva el sello
+  # SYNTHETIC_DATA_ONLY, el arranque falla. AC-01 y AC-02.
+  # El default es `false` a propósito: arrancar sin configurar nada no debe
+  # funcionar. Un default permisivo convierte el control en un adorno.
   demo-mode: ${DEMO_MODE:false}
+  app-env: ${APP_ENV:local}

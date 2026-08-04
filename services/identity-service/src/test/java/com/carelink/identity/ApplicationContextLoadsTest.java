@@ -1,34 +1,37 @@
 package com.carelink.identity;
 
+import com.carelink.identity.support.EmbeddedPostgresSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 
 /**
- * Levanta el contexto completo de Spring y nada más.
+ * Levanta el contexto completo de Spring contra una base real y nada más.
  *
- * Este test existe por un agujero concreto: hasta la Sub-fase 0 la suite tenía 22
- * tests en verde sobre una aplicación que no podía arrancar. `AuthController`
- * inyectaba `VerificationTokenRepository`, un puerto sin ningún adaptador, y
+ * <p>Este test existe por un agujero concreto: antes de la Sub-fase 0 la suite tenía 22
+ * tests en verde sobre una aplicación que no podía arrancar. {@code AuthController}
+ * inyectaba {@code VerificationTokenRepository}, un puerto sin ningún adaptador, y
  * ningún test cargaba el contexto — todos instanciaban sus colaboradores a mano o
- * usaban `MockMvcBuilders.standaloneSetup`. La falla solo aparecía al hacer
- * `docker compose up`.
+ * usaban {@code MockMvcBuilders.standaloneSetup}. La falla solo aparecía al hacer
+ * {@code docker compose up}.
  *
- * Un puerto sin adaptador, un bean duplicado o una dependencia circular tienen que
- * romper acá, en `mvn test`, no en el arranque del contenedor.
- *
- * La URL de base de datos apunta a un destino inexistente a propósito: con
- * `ddl-auto: none` y el dialecto declarado, Hibernate no necesita conectarse para
- * armar el contexto. Lo que se verifica es el cableado de beans, no la base.
+ * <p>Desde la Sub-fase 1 cubre más que el cableado de beans: al correr contra un
+ * PostgreSQL real, cada arranque aplica las migraciones de Flyway y ejecuta
+ * {@link com.carelink.identity.infrastructure.containment.DemoModeGuard}. Una migración
+ * que no compila, un puerto sin adaptador o un sello de contención ausente rompen acá,
+ * en {@code mvn test}, y no en el arranque del contenedor.
  */
 @SpringBootTest(properties = {
-        "spring.datasource.url=jdbc:postgresql://localhost:1/contextloadsonly",
-        "spring.datasource.username=none",
-        "spring.datasource.password=none",
-        "spring.jpa.hibernate.ddl-auto=none",
-        "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect",
-        "spring.sql.init.mode=never"
+        "carelink.demo-mode=true",
+        "carelink.app-env=test"
 })
 class ApplicationContextLoadsTest {
+
+    @DynamicPropertySource
+    static void datasource(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", () -> EmbeddedPostgresSupport.createDatabase("ctxload"));
+    }
 
     @Test
     void contextLoads() {

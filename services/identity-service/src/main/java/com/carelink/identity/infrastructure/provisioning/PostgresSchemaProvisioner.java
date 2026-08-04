@@ -10,6 +10,9 @@ import java.nio.charset.StandardCharsets;
 
 @Component
 public class PostgresSchemaProvisioner implements SchemaProvisioner {
+
+    private static final String TENANT_TEMPLATE = "classpath:/db/tenant/tenant_template.sql";
+
     private final JdbcTemplate jdbcTemplate;
     private final ResourceLoader resourceLoader;
 
@@ -24,15 +27,16 @@ public class PostgresSchemaProvisioner implements SchemaProvisioner {
             String schema = "tenant_" + tenantSlug;
             jdbcTemplate.execute("CREATE SCHEMA IF NOT EXISTS " + schema);
 
-            Resource resource = resourceLoader.getResource("classpath:/migrations/002_tenant_schema_template.sql");
+            // Solo classpath. Antes había tres rutas de fallback —`classpath:/migrations/`,
+            // `file:../migrations/`, `file:./migrations/`— que dependían del directorio de
+            // trabajo del proceso y no acertaban en ningún layout real: ninguna resuelve
+            // desde services/identity-service, y dentro del contenedor la aplicación es un
+            // jar, donde `file:../` no existe. Provisionar un tenant habría fallado en
+            // runtime. No se detectó antes porque el único test que lo cubría terminaba en
+            // `IT` y failsafe no estaba configurado, así que nunca se ejecutó.
+            Resource resource = resourceLoader.getResource(TENANT_TEMPLATE);
             if (!resource.exists()) {
-                resource = resourceLoader.getResource("file:../migrations/002_tenant_schema_template.sql");
-            }
-            if (!resource.exists()) {
-                resource = resourceLoader.getResource("file:./migrations/002_tenant_schema_template.sql");
-            }
-            if (!resource.exists()) {
-                throw new RuntimeException("Migration template not found: migrations/002_tenant_schema_template.sql");
+                throw new IllegalStateException("Plantilla de schema de tenant no encontrada: " + TENANT_TEMPLATE);
             }
 
             String sql = new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
