@@ -608,9 +608,26 @@ PR opened →
 
 ### 16.1 Delivered and verified today
 
+*Last verified 2026-08-04, end of Sub-fase 0 — by running the system, not by reading it.*
+
 - Tenant registration with schema-per-tenant provisioning (partial)
 - Password auth (Argon2id), JWT (RS256, JWKS, Vault key provider)
-- Refresh token rotation, hexagonal layering, unit + integration tests on Identity
+- Refresh token rotation, hexagonal layering
+- 23 unit + integration tests green, `./mvnw test` from the repository root
+- **The application starts.** `docker compose up` brings up backend + PostgreSQL 16 +
+  frontend placeholder, backend reporting `{"status":"UP"}` (ADR-012)
+
+**Correction to the previous wording of this section.** Until 2026-08-04 this list
+claimed Identity was "verified", on the strength of a green test suite. It was not: no
+test loaded the Spring context, `VerificationTokenRepository` had no adapter, and the
+application could not start at all. The suite verified components in isolation over an
+artifact that had never run. What is claimed here now is what was observed running.
+Detail in `tasks/lessons.md`, 2026-08-04.
+
+**Known gaps in the built slice**, tracked in `tasks/todo.md`, not claimed as delivered:
+CI does not execute the Java tests (§15.3 step 5 is specified but absent); verification
+tokens have no expiry; `migrations/` contains two mutually incompatible migrations for
+the same tables and is not applied automatically anywhere.
 
 ### 16.2 In scope — Milestone 1 (expanded per author decision, ADR-013 adenda)
 
@@ -842,7 +859,7 @@ built; a pending AC for unbuilt work would imply a roadmap this SRS doesn't comm
 | Item | Section | Blocking |
 |---|---|---|
 | License selection | ADR-011 | Repository presentation |
-| System name confirmation | Header | Cosmetic — rename before Sub-fase 0 if desired |
+| ~~System name confirmation~~ | Header | **Closed 2026-08-04** — stays "CareLink". Java package is `com.carelink`; renaming touches 800+ lines of documentation for no technical gain |
 | Second locale (en-US) for portfolio | §12 | Not blocking; nice-to-have |
 | Full endpoint inventory | §11 | Written per sub-fase, not upfront |
-| `test_identity.db` history purge (`git filter-repo`) | inherited from v2.0 | Repo hygiene, Sub-fase 0 |
+| `test_identity.db` history purge (`git filter-repo`) | inherited from v2.0 | **Open — author decision required.** File untracked as of 2026-08-04 (AC-03 passes) but still recoverable from earlier commits. PR #1 is already merged, so rewriting history invalidates existing clones and forks and requires a force-push |
