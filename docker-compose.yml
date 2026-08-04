@@ -1,0 +1,79 @@
+# CareLink — stack local reproducible (ADR-012).
+#
+#   docker compose up
+#
+# Levanta backend + PostgreSQL 16 + frontend (placeholder hasta Sub-fase 7).
+# Entornos reales del proyecto: local (este archivo) y CI. No hay demo público ni
+# producción (ADR-015, SRS §1.6/§15.1) — este compose no es un artefacto de deploy.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-carelink}
+      POSTGRES_USER: ${POSTGRES_USER:-carelink}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-carelink_local_only}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # migrations/ NO se monta en /docker-entrypoint-initdb.d a propósito:
+      # 0001_create_identity.sql y 001_public_schema.sql crean `tenants` y `users`
+      # con formas incompatibles entre sí, y 002_tenant_schema_template.sql modela
+      # `appointments` (Scheduling, §16.3 no construido) en vez del dominio clínico
+      # de §10. Aplicarlas automáticamente hornearía un esquema equivocado.
+      # Se resuelve en Sub-fase 1 con Flyway (§9) + 003_demo_marker.sql.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-carelink} -d ${POSTGRES_DB:-carelink}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: services/identity-service/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-carelink}
+      DATABASE_USER: ${POSTGRES_USER:-carelink}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-carelink_local_only}
+      SERVER_PORT: 8080
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      APP_ENV: ${APP_ENV:-local}
+      # Contención (§15.2). El guard que hace fallar el arranque cuando esto no es
+      # `true` es tarea de Sub-fase 1 — hoy la variable viaja pero nadie la valida.
+      DEMO_MODE: ${DEMO_MODE:-true}
+      JWT_VAULT_PEM: ${JWT_VAULT_PEM:-}
+      JWT_VAULT_KID: ${JWT_VAULT_KID:-}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-900}
+      REFRESH_TOKEN_HMAC_SECRET: ${REFRESH_TOKEN_HMAC_SECRET:?definí REFRESH_TOKEN_HMAC_SECRET en tu .env}
+      REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-604800}
+      MAX_CONCURRENT_SESSIONS: ${MAX_CONCURRENT_SESSIONS:-3}
+      CLINIC_ENCRYPTION_KEY: ${CLINIC_ENCRYPTION_KEY:-}
+      KNOWLEDGE_ANONYMITY_THRESHOLD: ${KNOWLEDGE_ANONYMITY_THRESHOLD:-5}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  frontend:
+    # Placeholder hasta Sub-fase 7, donde lo reemplaza la SPA React 18 + Vite
+    # + Tailwind (ADR-014). Sirve una página estática que dice justamente eso;
+    # no simula funcionalidad que no existe.
+    image: nginx:1.27-alpine
+    depends_on:
+      - backend
+    volumes:
+      - ./docker/frontend-placeholder:/usr/share/nginx/html:ro
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+
+volumes:
+  pgdata:

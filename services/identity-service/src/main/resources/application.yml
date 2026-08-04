@@ -1,0 +1,70 @@
+spring:
+  application:
+    name: carelink-identity
+
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/carelink}
+    username: ${DATABASE_USER:carelink}
+    password: ${DATABASE_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    # `none`, deliberadamente. El esquema no lo gestiona Hibernate: las tablas se
+    # versionan en migrations/. Hoy ese directorio tiene migraciones en conflicto
+    # (0001_create_identity.sql y 001_public_schema.sql crean `tenants`/`users` con
+    # formas incompatibles) — se resuelve en Sub-fase 1 junto con la adopción de
+    # Flyway (SRS §9). Hasta entonces nada aplica migraciones automáticamente.
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          lob:
+            non_contextual_creation: true
+
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:1025}
+    username: ${SMTP_USER:}
+    password: ${SMTP_PASSWORD:}
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: never
+    include-stacktrace: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Solo `health`. El resto de los endpoints de actuator exponen
+        # configuración, beans y variables de entorno — esto no es una consola
+        # de administración. SecurityConfig repite la restricción por ruta.
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      # show-details queda en su default (`never`): la respuesta es {"status":"UP"},
+      # sin nombres de componentes ni detalles de infraestructura.
+  health:
+    mail:
+      # Apagado a propósito. §16.4 deja fuera toda integración viva de SMTP en
+      # este milestone, así que el indicador intentaba conectar a un servidor que
+      # por decisión no existe y reportaba el servicio entero como DOWN. Un health
+      # check sobre algo deliberadamente ausente no informa nada: falla siempre.
+      # Se vuelve a habilitar el día que exista un SMTP real que verificar.
+      enabled: false
+
+logging:
+  level:
+    root: ${LOG_LEVEL:INFO}
+
+carelink:
+  # Contención (SRS §1.6, §15.2). ADVERTENCIA: hoy esto es solo una propiedad —
+  # `DemoModeGuard`, que hace fallar el arranque si no es `true` y si la base no
+  # lleva el sello SYNTHETIC_DATA_ONLY, es tarea de Sub-fase 1 (AC-01, AC-02).
+  # Mientras el guard no exista, este valor no protege nada.
+  demo-mode: ${DEMO_MODE:false}
