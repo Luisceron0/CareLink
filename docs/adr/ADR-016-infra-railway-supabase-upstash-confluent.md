@@ -1,7 +1,35 @@
-# ADR-008 — Infra: Railway / Supabase / Upstash / Confluent Cloud
+# ADR-016 — Infra: Railway / Supabase / Upstash / Confluent Cloud
 
 ## Estado
-Propuesto
+**Superado por ADR-012 y ADR-015.** No implementar. Se conserva como registro de la
+decisión y de por qué se revirtió — un ADR superado no se borra.
+
+## Nota de renumeración (2026-08-04)
+Este documento se publicó originalmente como *ADR-008*, número que el SRS §17 ya
+tenía asignado a "GDPR Erasure vs. Colombian Retention (Res. 1995/1999)". Dos ADR
+distintos con el mismo número hacen que la referencia `ADR-008` sea ambigua, así que
+este —el que llegó después— pasa a ADR-016. El contenido queda intacto.
+
+## Por qué quedó superado
+- **Sin Docker → con Docker.** La premisa central de este ADR ("simplificar el flujo
+  de desarrollo sin Docker") fue revertida por **ADR-012**: el stack local es Docker
+  Compose (backend + PostgreSQL 16 + frontend). Con tres componentes en juego, un
+  comando reproducible vale más que evitar el runtime de contenedores.
+- **Sin demo público.** **ADR-015** elimina todo entorno desplegado. Railway, Vercel y
+  los límites de plan gratuito dejan de ser restricciones sobre las que decidir: los
+  únicos entornos son local y CI.
+- **Kafka y Redis salen del stack.** SRS §9 es explícito: nada de §5 los requiere.
+  Confluent Cloud y Upstash dejan de tener función.
+- **Segundo runtime backend.** Este ADR asumía servicios FastAPI junto a Spring Boot.
+  §9 descarta un segundo runtime backend, y ADR-010 ya eliminó el que existía.
+
+Lo único que sobrevive conceptualmente es el uso de un Vault para material de claves,
+que se resuelve en **ADR-004** (JWKS con proveedor de claves respaldado por Vault) y
+**ADR-017**, sin acoplarse a Supabase.
+
+---
+
+*Contenido original, sin modificar, desde acá:*
 
 ## Contexto
 El repositorio y la documentación inicial referenciaban infraestructura AWS (ECS, RDS, ElastiCache, MSK, KMS, S3) y herramientas como Trivy para SCA. Se decidió un cambio de proveedor para simplificar el flujo de desarrollo sin Docker y usar plataformas serverless/managed más alineadas al equipo: Railway para despliegue de servicios, Supabase para Postgres + Vault + Storage, Upstash para Redis serverless y Confluent Cloud para Kafka.
