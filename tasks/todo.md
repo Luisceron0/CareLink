@@ -22,8 +22,15 @@ construir en 8 frentes a la vez.
 - [ ] Decidir `git filter-repo` para purgar `test_identity.db` del historial
 - [ ] Consolidar a un solo `docs/SRS.md` v3.0; archivar `carelink-srs.md` y el SRS de
       ClinicTrack como input histórico (no se borran, se mueven a `docs/archive/`)
-- [ ] `docker-compose.yml`: backend + PostgreSQL 16 + frontend (placeholder hasta
+- [x] `docker-compose.yml`: backend + PostgreSQL 16 + frontend (placeholder hasta
       Sub-fase 7) — ADR-012
+      Verificado levantando el stack, no por inspección del archivo:
+      `backend healthy {"status":"UP"} HTTP 200` · `db healthy` · `frontend HTTP 200`.
+      Levantarlo destapó cuatro defectos que ningún test detectaba: el puerto
+      `VerificationTokenRepository` sin adaptador (el contexto de Spring no cargaba),
+      `spring-boot-starter-actuator` ausente pero configurado, `SecurityConfig`
+      devolviendo 403 en `/actuator/health`, y `MailHealthIndicator` marcando el
+      servicio DOWN contra un SMTP que §16.4 decide no construir.
 - [x] Confirmar o cambiar nombre del sistema (SRS §20, item abierto)
       **Se mantiene CareLink.** El paquete Java es `com.carelink`, el SRS lo arrastra
       como supuesto de trabajo y renombrar toca 800+ líneas de documentación por cero
