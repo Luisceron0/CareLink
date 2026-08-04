@@ -1,13 +1,13 @@
 package com.carelink.identity.infrastructure.provisioning;
 
-import com.opentable.db.postgres.embedded.EmbeddedPostgres;
+import io.zonky.test.db.postgres.embedded.EmbeddedPostgres;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-public class PostgresSchemaProvisionerZonkyIT {
+public class PostgresSchemaProvisionerIT {
 
     @Test
     public void provisionCreatesSchema() throws Exception {

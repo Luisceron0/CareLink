@@ -22,8 +22,11 @@ WORKDIR /app
 RUN useradd --system --uid 10001 --create-home carelink
 USER carelink
 
+# `-exec.jar`, no `*.jar`: el jar plano y el ejecutable conviven en target/ (ver el
+# clasificador en el pom). Copiar el plano produce un contenedor que arranca y muere
+# por NoClassDefFoundError sobre Spring.
 COPY --from=build --chown=carelink:carelink \
-     /build/services/identity-service/target/identity-service-*.jar /app/app.jar
+     /build/services/identity-service/target/identity-service-*-exec.jar /app/app.jar
 
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

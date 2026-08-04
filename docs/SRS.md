@@ -764,6 +764,27 @@ the more defensible posture for a system whose central design constraint is "mus
 handle real PHI." Portfolio presentation uses a recorded walkthrough + one-command local
 setup instead. Revisitable as its own decision later.
 
+**Addendum 2026-08-04 — the repository is not a presentation channel either.**
+The author confirmed that reviewers should be able to see *the tool* but not *the
+repository*: nothing is published, and the repository stays private. This removes the
+"one-command local setup" half of the presentation strategy above — a reviewer without
+repository access cannot run `docker compose up`. The **recorded walkthrough is therefore
+the only channel through which this system is ever seen.**
+
+Two consequences that are not cosmetic:
+- **Sub-fase 7 (frontend) carries the entire demonstration.** It is no longer "the
+  remaining layer"; it is the sole artifact a reviewer experiences. Every capability
+  built in Sub-fases 1–6 that has no view in Sub-fase 7 is, from the outside,
+  indistinguishable from not having been built.
+- **The k-anonymity suppression message (FR-CLN-07) and the interconsultation revocation
+  (FR-CLN-10) have to be *visible* in the walkthrough**, not merely enforced server-side.
+  They are the two most distinctive security properties of this system, and a control
+  that only shows up as a 403 in a log is a control the viewer never sees.
+
+This does not relax any containment guarantee in §1.6 — a private repository is not a
+substitute for `DemoModeGuard`, and the guard is in any case part of what the walkthrough
+demonstrates.
+
 ### ADR-016 — Infra: Railway / Supabase / Upstash / Confluent Cloud (SUPERSEDED)
 **Status:** superseded by ADR-012 and ADR-015. Full text:
 `docs/adr/ADR-016-infra-railway-supabase-upstash-confluent.md`.

@@ -11,6 +11,21 @@
     <artifactId>identity-service</artifactId>
     <packaging>jar</packaging>
 
+    <dependencyManagement>
+        <dependencies>
+            <!-- Fija los binarios de PostgreSQL embebido en la misma versión mayor que
+                 corre docker-compose y que declara el SRS §9. Si esto se desalinea, los
+                 tests pasan a verificar un motor distinto del que se ejecuta. -->
+            <dependency>
+                <groupId>io.zonky.test.postgres</groupId>
+                <artifactId>embedded-postgres-binaries-bom</artifactId>
+                <version>16.2.0</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -40,11 +55,30 @@
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
-        <!-- Embedded PostgreSQL for tests (no Docker/Testcontainers in CI) -->
+        <!-- Versionado de esquema (SRS §9). Se adopta acá, en Sub-fase 1, antes de
+             agregar la primera tabla nueva: migrations/ tenía dos archivos creando
+             `tenants` y `users` con formas incompatibles, y ambos con IF NOT EXISTS,
+             así que el esquema resultante dependía del orden lexicográfico. -->
         <dependency>
-            <groupId>com.opentable.components</groupId>
-            <artifactId>otj-pg-embedded</artifactId>
-            <version>0.13.4</version>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+        <!-- PostgreSQL embebido para tests de integración (SRS §13).
+             Zonky, no otj-pg-embedded de OpenTable: aquel empaquetaba PostgreSQL 10,
+             mientras el SRS especifica 16 y docker-compose corre 16. La diferencia no
+             era teórica — `gen_random_uuid()` es builtin desde PG 13 y fallaba — y lo
+             que se verifica acá son triggers, GRANTs y constraints, comportamiento
+             específico del motor. Un test de AC-10 sobre otra versión mayor no
+             evidencia AC-10. El §13 decía "Zonky" desde el principio; el código no lo
+             cumplía. La versión del binario se fija abajo, en dependencyManagement. -->
+        <dependency>
+            <groupId>io.zonky.test</groupId>
+            <artifactId>embedded-postgres</artifactId>
+            <version>2.0.7</version>
             <scope>test</scope>
         </dependency>
         <!-- Kafka test utilities (embedded) -->
@@ -97,6 +131,25 @@
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>3.1.2</version>
                 </plugin>
+                <!-- Los tests de integración (`*IT`) no los ejecuta surefire, solo
+                     failsafe — y failsafe no estaba configurado. Consecuencia:
+                     PostgresSchemaProvisionerZonkyIT existía en el repo y nunca se
+                     ejecutó, ni con `mvn test` ni con `mvn verify`. Los AC de
+                     contención y de auditoría se verifican con tests de integración,
+                     así que sin esto no hay forma de evidenciarlos. -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                    <version>3.1.2</version>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>integration-test</goal>
+                                <goal>verify</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
                 <!-- Produce el jar ejecutable que consume el Dockerfile (ADR-012).
                      Sin esto `mvn package` deja un jar plano sin las dependencias
                      y el contenedor no arranca. -->
@@ -104,6 +157,16 @@
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-maven-plugin</artifactId>
                     <version>${spring.boot.version}</version>
+                    <configuration>
+                        <!-- El jar ejecutable sale como artefacto secundario
+                             (`-exec.jar`) y el artefacto principal sigue siendo el jar
+                             plano. Sin el clasificador, `repackage` reemplaza el
+                             principal por el fat jar, cuyas clases viven bajo
+                             BOOT-INF/classes; failsafe pone ese jar en el classpath en
+                             lugar de target/classes y todo `*IT` muere con
+                             ClassNotFoundException sobre clases propias. -->
+                        <classifier>exec</classifier>
+                    </configuration>
                     <executions>
                         <execution>
                             <goals>
