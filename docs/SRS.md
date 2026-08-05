@@ -346,8 +346,24 @@ a period. Conflict warnings (allergy, active same-class prescription) warn, neve
 
 ### 5.10 Audit Trail
 
-> **Status: TO BE BUILT — Milestone 1, Sub-fase 1 (built early — every other module
-> depends on it existing first).**
+> **Status: BUILT — mechanism verified, not yet exercised by a real PHI operation.**
+> `audit_log` (per-tenant schema, append-only trigger + `carelink_app` GRANT restricted
+> to INSERT/SELECT), `AuditAspect`/`@Auditable`/`AuditEntryPort`/`JdbcAuditEntryAdapter`.
+> Verified end-to-end against a real `docker compose up` run, not only unit tests:
+> registering a tenant provisions its schema (admin role), the application's own
+> traffic runs as `carelink_app` (JPA insert of `Tenant`/`User` succeeded under that
+> role), and `information_schema.role_table_grants` on the resulting `audit_log` shows
+> exactly `carelink_app → {INSERT, SELECT}` vs. `carelink → {INSERT, SELECT, UPDATE,
+> DELETE, TRUNCATE, REFERENCES, TRIGGER}` (table owner). AC-10 evidenced twice: by
+> `AuditLogAppendOnlyIT` against embedded PostgreSQL, and by this live run against the
+> compose stack.
+>
+> **What "mechanism verified" does not yet mean:** no real use case calls
+> `@Auditable` yet — there is no PHI-reading method to annotate before Patient exists
+> (Sub-fase 2). `AuditAspectIT` demonstrates the aspect against a synthetic test
+> service, not a production code path. AC-07 ("1 PHI read → 1 audit log entry")
+> therefore remains the placeholder test that `tasks/todo.md` always said it would be
+> until Sub-fase 2.
 
 #### FR-CLN-13 — Immutable Audit Log
 Every PHI read/write/export generates an entry: timestamp, user, role, patient, action,
@@ -583,7 +599,10 @@ alert about (§15) — logs are inspected manually for a portfolio project at th
 
 Unchanged in mechanism from CareLink v2.0 §15.4: `DemoModeGuard` fails startup unless
 `DEMO_MODE=true`, `APP_ENV` is not a production-like value, and the target database
-carries the `SYNTHETIC_DATA_ONLY` stamp (`migrations/003_demo_marker.sql`). With no
+carries the `SYNTHETIC_DATA_ONLY` stamp
+(`services/identity-service/src/main/resources/db/migration/V2__demo_marker.sql` —
+Flyway, not the old root-level `migrations/`, which no longer exists as of Sub-fase 1).
+**Status: BUILT** — `DemoModeGuard`, `ContainmentGuardIT` (AC-01, AC-02). With no
 public demo target, this guardrail's practical job is protecting local/CI from
 accidental misconfiguration — still worth having, cheap to keep, and it's the same
 control regardless of whether a demo exists.
@@ -608,26 +627,37 @@ PR opened →
 
 ### 16.1 Delivered and verified today
 
-*Last verified 2026-08-04, end of Sub-fase 0 — by running the system, not by reading it.*
+*Last verified 2026-08-05, end of Sub-fase 1 — by running the system, not by reading it.*
 
-- Tenant registration with schema-per-tenant provisioning (partial)
+- Tenant registration with schema-per-tenant provisioning, exercised end-to-end against
+  a live `docker compose up` stack: `POST /api/v1/auth/register` creates the `Tenant`
+  and `User` rows (via JPA, under the restricted `carelink_app` role) and provisions
+  `tenant_<slug>` (via the admin role) in one call
 - Password auth (Argon2id), JWT (RS256, JWKS, Vault key provider)
 - Refresh token rotation, hexagonal layering
-- 23 unit + integration tests green, `./mvnw test` from the repository root
-- **The application starts.** `docker compose up` brings up backend + PostgreSQL 16 +
-  frontend placeholder, backend reporting `{"status":"UP"}` (ADR-012)
+- `DemoModeGuard` (AC-01, AC-02) and the two-role database model (AC-10) — see §5.10,
+  §15.2
+- 23 unit tests + 12 integration tests green, `./mvnw verify` from the repository root
+  (Zonky-embedded PostgreSQL 16, not a double — §13)
+- **The application starts, and its own traffic runs as the role it claims to.**
+  `docker compose up` brings up backend + PostgreSQL 16 + frontend placeholder, backend
+  reporting `{"status":"UP"}` (ADR-012); `pg_stat_activity` on that live stack shows
+  JPA/application connections under `carelink_app`, the admin pool (2 connections, not
+  Hikari's default 10 — sized for its one rare consumer) under `carelink` — see §5.10 for
+  how this was confirmed, and how the confirmation itself took three attempts
 
 **Correction to the previous wording of this section.** Until 2026-08-04 this list
 claimed Identity was "verified", on the strength of a green test suite. It was not: no
 test loaded the Spring context, `VerificationTokenRepository` had no adapter, and the
 application could not start at all. The suite verified components in isolation over an
 artifact that had never run. What is claimed here now is what was observed running.
-Detail in `tasks/lessons.md`, 2026-08-04.
+Detail in `tasks/lessons.md`, 2026-08-04 and 2026-08-05.
 
 **Known gaps in the built slice**, tracked in `tasks/todo.md`, not claimed as delivered:
-CI does not execute the Java tests (§15.3 step 5 is specified but absent); verification
-tokens have no expiry; `migrations/` contains two mutually incompatible migrations for
-the same tables and is not applied automatically anywhere.
+verification tokens have no expiry; `PostgresSchemaProvisioner` still accepts a raw
+`String` tenant slug and would emit invalid SQL for a slug containing a hyphen (AC-05,
+Sub-fase 2); AC-07 ("1 PHI read → 1 audit entry") has no real use case to test against
+yet.
 
 ### 16.2 In scope — Milestone 1 (expanded per author decision, ADR-013 adenda)
 
@@ -819,6 +849,11 @@ so PostgreSQL is the store.
 | AC-04 | One Identity implementation | CI grep for `HS256`/`dev-secret` |
 | AC-12 | Seed data synthetic only | No import path exists |
 
+**Status, Sub-fase 1:** AC-01, AC-02, AC-03, AC-04 — **Pass**. AC-01/AC-02 via
+`ContainmentGuardIT` (5 tests, arranging and rearranging the three conditions, including
+the contrapositive — an arrangement that boots successfully). AC-03/AC-04 hold today but
+their CI gate (blocking, not `|| true`) ships in this same sub-fase — see `ci.yml`.
+
 ### 18.2 Security of the built slice
 
 | ID | Criterion | Verification |
@@ -830,6 +865,14 @@ so PostgreSQL is the store.
 | AC-08 | Signed encounter modification → 409 | Integration test |
 | AC-09 | PHI columns unreadable via direct SELECT | Integration test |
 | AC-10 | App DB user lacks DELETE on `audit_log` | Integration test, DB grant check |
+
+**Status, Sub-fase 1:** AC-10 — **Pass**. `AuditLogAppendOnlyIT` against embedded
+PostgreSQL (app role rejected on DELETE/UPDATE by GRANT; admin role, which has the
+GRANT as table owner, rejected instead by the trigger — two independent layers, tested
+separately) plus a live `docker compose` run: `information_schema.role_table_grants`
+on `tenant_clinicademo.audit_log` shows `carelink_app → {INSERT, SELECT}` only. AC-05
+through AC-09 remain unbuilt — Sub-fase 2 (AC-05, AC-06, AC-06b, AC-08, AC-09) and
+Sub-fase 2 onward for AC-07 (needs a real PHI read to test against).
 | AC-11 | No SQLi, header vector included | `sqlmap --level 3`, report committed |
 | AC-13 | Interconsultation access denied after closure | Integration test — grant, close, re-request, expect 403 |
 | AC-14 | Knowledge Engine suppresses results when k<5 | Integration test with seeded near-unique combination |

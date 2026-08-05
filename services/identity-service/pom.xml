@@ -81,11 +81,10 @@
             <version>2.0.7</version>
             <scope>test</scope>
         </dependency>
-        <!-- Kafka test utilities (embedded) -->
+        <!-- AuditAspect (AOP) intercepta @Auditable — FR-CLN-13, SRS §5.10. -->
         <dependency>
-            <groupId>org.springframework.kafka</groupId>
-            <artifactId>spring-kafka-test</artifactId>
-            <scope>test</scope>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -124,6 +123,13 @@
                     <version>3.11.0</version>
                     <configuration>
                         <release>21</release>
+                        <!-- Sin esto, AuditAspect no puede resolver sus expresiones
+                             SpEL contra nombres de parámetro reales: Parameter.getName()
+                             devuelve "arg0"/"arg1"/... y #tenantSlug evalúa a null en
+                             silencio (SpEL no lanza sobre una variable no definida) en
+                             vez de fallar ruidosamente. Spring 6 ya no cae al lector de
+                             bytecode ASM como fallback — -parameters es la única fuente. -->
+                        <parameters>true</parameters>
                     </configuration>
                 </plugin>
                 <plugin>

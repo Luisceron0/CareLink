@@ -80,23 +80,65 @@ construir en 8 frentes a la vez.
       OpenJDK 21. Línea base verificada: 22 tests verdes en `identity-service`.
 
 ## Sub-fase 1: Contención + Audit Log (todo lo demás depende de esto)
-- [ ] **Arreglar `migrations/` antes de agregarle nada** (descubierto en Sub-fase 0):
-      `0001_create_identity.sql` y `001_public_schema.sql` crean `tenants` y `users` con
-      formas incompatibles (`legal_name`/`contact_email` vs. `name`/`role`/`created_at`),
-      y como ambas usan `IF NOT EXISTS`, la segunda se saltea en silencio según el orden
-      lexicográfico. `002_tenant_schema_template.sql` modela `appointments` (Scheduling,
-      §16.3 no construido) en vez del dominio clínico de §10. Además
-      `scripts/create_tenant_schema.sql` invoca `\i` —meta-comando de psql— dentro de un
-      `EXECUTE` server-side, donde no puede funcionar. Adoptar Flyway acá (§9) y
-      consolidar, no apilar una migración más encima.
-- [ ] `migrations/003_demo_marker.sql` + `DemoModeGuard` — AC-01, AC-02
-- [ ] CI: tracked-database check (AC-03) + single-auth-implementation check (AC-04)
-- [ ] `AuditLog` entity — append-only, trigger de PostgreSQL bloqueando UPDATE/DELETE
-- [ ] `AuditAspect` (AOP) — intercepta métodos `@Auditable`, persiste transaccionalmente
-      con la operación principal; si la operación falla, registra `result = ERROR`
-- [ ] Test: usuario de aplicación de la DB no tiene grant DELETE sobre `audit_log` — AC-10
+- [x] **Arreglar `migrations/` antes de agregarle nada** (descubierto en Sub-fase 0).
+      Resuelto adoptando Flyway (§9): `V1__identity_baseline.sql` consolida `tenants`/
+      `users`/`sessions`/`verification_tokens` en una sola forma, derivada de las
+      entidades JPA. `migrations/` (raíz) y `scripts/create_tenant_schema.sql` (el `\i`
+      dentro de un `EXECUTE` que no podía funcionar) se eliminaron — Flyway y
+      `PostgresSchemaProvisioner` son ahora el único camino de esquema.
+- [x] `V2__demo_marker.sql` + `DemoModeGuard` — AC-01, AC-02
+      Evidencia: `ContainmentGuardIT`, 5 tests — boot falla sin `DEMO_MODE=true`, con
+      `APP_ENV` de producción, y contra una base sin el sello (`flyway.target=1`,
+      esquema válido pero sin sello — la forma peligrosa a propósito); y arranca cuando
+      las tres condiciones se cumplen (contrapeso: sin este test, un guard que
+      rechazara todo también pasaría los otros cuatro).
+- [x] CI: tracked-database check (AC-03) + single-auth-implementation check (AC-04)
+      Ambos bloqueantes (`exit 1`, sin `|| true`), en `.github/workflows/ci.yml`. El paso
+      de build pasa de `mvn -DskipTests package` a `mvn verify` — ahora CI corre los
+      unitarios y los `*IT` (antes ninguno de los dos). No verificado corriendo GitHub
+      Actions de verdad (sin acceso a esa infraestructura desde acá) — sí verificado que
+      cada comando individual (`mvn verify`, los dos greps) se comporta como se espera
+      localmente.
+- [x] **Dos roles de base de datos** (no estaba en el plan original, pero AC-10 es
+      inalcanzable sin esto): con un solo rol conectando como superusuario —como
+      arrancó el compose de Sub-fase 0— el rechazo de permisos no significa nada. Rol
+      administrador (Flyway, `PostgresSchemaProvisioner`) + `carelink_app` restringido
+      (JPA, tráfico normal). Provisionado por `docker/postgres-init/01-create-app-
+      role.sh` al inicializar el volumen de Postgres, no por una migración de Flyway —
+      si se creara ahí habría una carrera entre "el rol existe" y "el pool de conexiones
+      de la app intenta su primera conexión".
+- [x] `AuditLog` — append-only, por tenant (`db/tenant/tenant_template.sql`), trigger de
+      PostgreSQL bloqueando UPDATE/DELETE para cualquier rol, incluido el admin.
+      De paso: se sacaron `physicians` y `appointments` de esa plantilla — Scheduling
+      (§16.3) y un duplicado de `User`, ninguno de los dos pertenece ahí.
+- [x] `AuditAspect` (AOP) — intercepta métodos `@Auditable`, persiste vía
+      `AuditEntryPort`/`JdbcAuditEntryAdapter`; si la operación falla, registra
+      `result = ERROR` y re-lanza. Evidenciado con un caso de uso sintético
+      (`AuditAspectIT`) — todavía no hay un caso de uso real que auditar.
+      **Alcance declarado, no completo:** la garantía "persiste transaccionalmente con
+      la operación principal" no está reverificada contra un `@Transactional` real
+      (no existe ninguno con escritura de PHI todavía). Se reverifica en Sub-fase 2.
+- [x] Test: usuario de aplicación de la DB no tiene grant DELETE sobre `audit_log` — AC-10
+      `AuditLogAppendOnlyIT`: el rol de aplicación puede INSERT/SELECT, no DELETE/UPDATE
+      (rechazado por permiso); el rol admin sí tiene el permiso pero lo bloquea el
+      trigger (dos capas independientes, verificadas por separado).
 - [ ] Test: cada lectura de PHI produce exactamente 1 fila nueva en `audit_log` — AC-07
       (test placeholder hasta que exista una entidad PHI real en Sub-fase 2)
+
+### Descubierto durante la Sub-fase 1 (no estaba en el plan original)
+- [x] **`DataSourceConfig` — tres trampas de `@ConditionalOnMissingBean` seguidas.**
+      Un bean propio de tipo `DataSource` hizo que Spring Boot dejara de autoconfigurar
+      el primario (JPA terminaba corriendo como administrador); la corrección con
+      `@ConfigurationProperties` sobre `DataSourceBuilder` no aplicaba la URL (Hikari usa
+      `setJdbcUrl`, no `setUrl`); corregido eso, el mismo patrón volvió a pasar un nivel
+      arriba con `JdbcTemplate`. Ninguna capa la encontró un test hasta que se escribió
+      uno a propósito (`ApplicationContextLoadsTest.primaryDataSourceConnectsAsRestrictedRoleNotAdmin`)
+      y se verificó contra `docker compose up` + `pg_stat_activity` real. Detalle
+      completo en `tasks/lessons.md`, 2026-08-05.
+- [x] Pool del DataSource administrador dimensionado a 2 conexiones (Hikari default es
+      10) — su único consumidor es un evento raro (provisión de tenant), no tráfico
+      caliente. 10 conexiones administrador ociosas por instancia no daban ningún
+      beneficio.
 
 ## Sub-fase 2: Identity (gaps) + Patient + ClinicalEncounter
 - [ ] `SchemaProvisioner.provisionSchema` acepta `TenantSlug`, revalida en el adapter — AC-05

@@ -11,18 +11,26 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-carelink}
+      # Rol administrador. En la imagen oficial de Postgres, un POSTGRES_USER
+      # distinto de "postgres" se crea como superusuario del cluster — es el rol
+      # que corre Flyway y provisiona schemas de tenant, nunca el que usa la
+      # aplicación en tráfico normal (AC-10).
       POSTGRES_USER: ${POSTGRES_USER:-carelink}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-carelink_local_only}
+      # Los lee 01-create-app-role.sh para provisionar el rol restringido.
+      CARELINK_APP_DB_USER: ${CARELINK_APP_DB_USER:-carelink_app}
+      CARELINK_APP_DB_PASSWORD: ${CARELINK_APP_DB_PASSWORD:?definí CARELINK_APP_DB_PASSWORD en tu .env}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # migrations/ NO se monta en /docker-entrypoint-initdb.d a propósito:
-      # 0001_create_identity.sql y 001_public_schema.sql crean `tenants` y `users`
-      # con formas incompatibles entre sí, y 002_tenant_schema_template.sql modela
-      # `appointments` (Scheduling, §16.3 no construido) en vez del dominio clínico
-      # de §10. Aplicarlas automáticamente hornearía un esquema equivocado.
-      # Se resuelve en Sub-fase 1 con Flyway (§9) + 003_demo_marker.sql.
+      # Corre UNA VEZ, al inicializar el volumen — antes de que el backend exista.
+      # Crea el rol restringido `carelink_app` (AC-10); ver el script para el porqué
+      # de que esto no se haga desde una migración de Flyway.
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+      # migrations/ (la carpeta de raíz) ya no existe — Flyway (services/identity-
+      # service/src/main/resources/db/migration) reemplazó las migraciones en
+      # conflicto que vivían ahí. Ver SRS §9.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-carelink} -d ${POSTGRES_DB:-carelink}"]
       interval: 5s
@@ -38,13 +46,18 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-carelink}
-      DATABASE_USER: ${POSTGRES_USER:-carelink}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-carelink_local_only}
+      # Rol restringido — lo usa JPA/Hibernate y el resto del tráfico normal
+      # (AC-10). El rol administrador (POSTGRES_USER/PASSWORD) solo lo usan
+      # Flyway y PostgresSchemaProvisioner, configurados aparte más abajo.
+      CARELINK_APP_DB_USER: ${CARELINK_APP_DB_USER:-carelink_app}
+      CARELINK_APP_DB_PASSWORD: ${CARELINK_APP_DB_PASSWORD:?definí CARELINK_APP_DB_PASSWORD en tu .env}
+      POSTGRES_USER: ${POSTGRES_USER:-carelink}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-carelink_local_only}
       SERVER_PORT: 8080
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       APP_ENV: ${APP_ENV:-local}
-      # Contención (§15.2). El guard que hace fallar el arranque cuando esto no es
-      # `true` es tarea de Sub-fase 1 — hoy la variable viaja pero nadie la valida.
+      # Contención (§15.2, AC-01). DemoModeGuard hace fallar el arranque si esto
+      # no es `true` — ya no es una variable sin efecto.
       DEMO_MODE: ${DEMO_MODE:-true}
       JWT_VAULT_PEM: ${JWT_VAULT_PEM:-}
       JWT_VAULT_KID: ${JWT_VAULT_KID:-}

@@ -12,19 +12,44 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      # Sin `|| true`. Este paso lo tenía, y lo que ocultaba no era un test
-      # inestable: el reactor no compilaba desde hacía commits, porque tres
-      # módulos stub declaraban <parent> sin <relativePath>. El pipeline estuvo
-      # en verde sobre un proyecto que no construía. Los módulos se eliminaron
-      # (§3.3, §16.3) y la máscara se va con ellos.
-      - name: Run Java build
-        run: mvn -B -DskipTests package
+
+      # AC-03 — SRS §18.1. Un .db versionado no lo detecta un scanner de secrets
+      # (gitleaks matchea texto, no binarios) — necesita su propio chequeo.
+      # tasks/lessons.md, 2026-08-03.
+      - name: Tracked-database check (AC-03)
+        run: |
+          tracked_dbs=$(git ls-files '*.db')
+          if [ -n "$tracked_dbs" ]; then
+            echo "::error::Archivos .db versionados (AC-03 requiere ninguno):"
+            echo "$tracked_dbs"
+            exit 1
+          fi
+
+      # AC-04 — SRS §18.1. Segunda implementación de Identity, eliminada en
+      # ADR-010, no se vuelve a colar. HS256/dev-secret bajo services/ es la
+      # huella de esa implementación específica, no un lint genérico.
+      - name: Single-auth-implementation check (AC-04)
+        run: |
+          if grep -rn "HS256\|dev-secret" services/ 2>/dev/null; then
+            echo "::error::HS256 o dev-secret encontrado bajo services/ (AC-04) — ver ADR-010"
+            exit 1
+          fi
+
+      # Sin `-DskipTests` y sin `|| true`. El primero de los dos venía ocultando
+      # que el reactor ni siquiera compilaba (tres módulos stub sin
+      # <relativePath>, eliminados en Sub-fase 0); el segundo hubiera ocultado
+      # que ningún test corría en absoluto. `verify`, no `test`: activa failsafe,
+      # así que los `*IT` (AC-01, AC-02, AC-10) corren acá, no solo localmente.
+      - name: Build + tests (unit + integration) — SRS §15.3 paso 5
+        run: mvn -B verify
+
       - name: Semgrep (SAST)
         uses: returntocorp/semgrep-action@v1
 
+      # Bloqueante solo en CRITICAL (CVSS ≥ 9), como declara el SRS §15.3 paso 2
+      # ("fail on new CRITICAL") — no en cualquier hallazgo.
       - name: Java SCA (OWASP dependency-check)
-        run: |
-          if [ -f pom.xml ]; then mvn org.owasp:dependency-check-maven:check || true; fi
+        run: mvn org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=9
 
       - name: Gitleaks (secret scanning)
         uses: zricethezav/gitleaks-action@v2
