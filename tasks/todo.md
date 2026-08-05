@@ -152,7 +152,24 @@ construir en 8 frentes a la vez.
       un slug con guión con éxito, y confirma que un slug malicioso no puede llegar a
       `provisionSchema` porque el port exige `TenantSlug`, no `String`. 14 tests de
       integración en verde (antes 12).
-- [ ] Rate limiting de login: 5 intentos → lockout 15 min + alerta
+- [x] Rate limiting de login: 5 intentos → lockout 15 min + alerta — FR-ID-03
+      `LoginRateLimiter`, en memoria por instancia (no Redis — §9, sin entorno con más
+      de una instancia, §1.6/ADR-015). Clave por IP vía `request.getRemoteAddr()`, no
+      `X-Forwarded-For` — sin proxy real delante en este milestone, confiar en esa
+      cabecera dejaría que cualquier cliente elija con qué IP se lo limita cambiando un
+      header (§8.4). "Alerta" es un log estructurado en WARN, no un canal externo —
+      §16.4 excluye integraciones vivas y §14 ya declara que los logs se inspeccionan a
+      mano en esta etapa. De paso, corregido: login inválido devolvía 500 (ninguna
+      excepción manejada llegaba a un catch), ahora 401; el bloqueo devuelve 429.
+      Evidencia: `AuthControllerSecurityIT` — 5 fallos consecutivos bloquean el sexto
+      intento aunque las credenciales sean correctas (verifica que el lockout se chequea
+      antes de tocar el caso de uso, no que simplemente rechaza credenciales malas de
+      nuevo). `LoginRateLimiter` se importa REAL en ese test, no mockeado.
+      **No resuelto acá, hallazgo aparte:** no existe `GlobalExceptionHandler` en todo
+      el controller — el 401 de login se corrigió puntualmente porque tocaba ese código
+      de todos modos, pero otras excepciones sin manejar (`/refresh`, `/verify`) siguen
+      devolviendo 500 genérico. SRS §8.1 lo declara como mitigación de la fila
+      "Unhandled exception discloses internals" y no está construido.
 - [ ] `Patient` entity + value objects (documento, tipo sangre, alergias, afiliación EPS/
       SISBEN opcional) — FR-CLN-01
 - [ ] `EncryptionService` (AES-256-GCM, IV aleatorio por operación, clave por tenant) —

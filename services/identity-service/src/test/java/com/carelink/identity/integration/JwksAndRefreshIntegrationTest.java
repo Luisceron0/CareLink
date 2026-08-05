@@ -126,7 +126,8 @@ public class JwksAndRefreshIntegrationTest {
                 pwd,
                 new InMemoryVerificationTokenRepo(),
                 sessionRepo,
-                jwtService
+                jwtService,
+                new com.carelink.identity.infrastructure.security.LoginRateLimiter()
         );
 
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
