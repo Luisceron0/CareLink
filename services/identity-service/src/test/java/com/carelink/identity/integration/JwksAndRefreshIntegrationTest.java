@@ -88,7 +88,7 @@ public class JwksAndRefreshIntegrationTest {
             }
         }
 
-        class InMemoryTenantRepo implements com.carelink.identity.domain.port.TenantRepository { @Override public java.util.Optional<com.carelink.identity.domain.Tenant> findBySlug(String slug) { return java.util.Optional.empty(); } @Override public void save(com.carelink.identity.domain.Tenant tenant) {} }
+        class InMemoryTenantRepo implements com.carelink.identity.domain.port.TenantRepository { @Override public java.util.Optional<com.carelink.identity.domain.Tenant> findBySlug(String slug) { return java.util.Optional.empty(); } @Override public java.util.Optional<com.carelink.identity.domain.Tenant> findById(java.util.UUID id) { return java.util.Optional.empty(); } @Override public void save(com.carelink.identity.domain.Tenant tenant) {} }
 
         class NoopSchemaProvisioner implements com.carelink.identity.domain.port.SchemaProvisioner { @Override public void provisionSchema(com.carelink.identity.domain.value.TenantSlug tenantSlug) {} }
 

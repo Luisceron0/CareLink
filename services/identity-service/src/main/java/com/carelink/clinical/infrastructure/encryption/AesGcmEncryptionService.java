@@ -1,6 +1,6 @@
-package com.carelink.identity.infrastructure.encryption;
+package com.carelink.clinical.infrastructure.encryption;
 
-import com.carelink.identity.domain.port.EncryptionService;
+import com.carelink.clinical.domain.port.EncryptionService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
