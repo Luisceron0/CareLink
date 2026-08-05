@@ -1,6 +1,8 @@
 package com.carelink.identity.infrastructure.provisioning;
 
 import com.carelink.identity.domain.port.SchemaProvisioner;
+import com.carelink.identity.domain.value.TenantSlug;
+import com.carelink.identity.infrastructure.persistence.PostgresIdentifiers;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
@@ -48,13 +50,24 @@ public class PostgresSchemaProvisioner implements SchemaProvisioner {
     }
 
     @Override
-    public void provisionSchema(String tenantSlug) {
-        // El slug llega sin revalidar en este método — aceptar `TenantSlug` en vez
-        // de `String` y revalidar en el sink es AC-05, Sub-fase 2 (lección de
-        // ADR-010: la invariante vive en el tipo que cruza el port, no en la
-        // disciplina del caller). Este cambio no amplía esa tarea; el
-        // comportamiento frente a un slug malicioso es el mismo que ya había.
-        String schema = "tenant_" + tenantSlug;
+    public void provisionSchema(TenantSlug tenantSlug) {
+        // AC-05, defensa en profundidad: el port ya exige TenantSlug, pero este sink
+        // revalida el valor crudo contra el MISMO patrón (TenantSlug.PATTERN, no una
+        // copia) en vez de confiar ciegamente en que el objeto que llegó pasó
+        // correctamente por el constructor en algún punto anterior del código. Ver la
+        // lección de ADR-010: el riesgo no es que TenantSlug no valide, es que un
+        // caller futuro construya el String de otra forma antes de llegar acá.
+        String rawSlug = tenantSlug.value();
+        if (!TenantSlug.PATTERN.matcher(rawSlug).matches()) {
+            throw new IllegalArgumentException("TenantSlug rechazado en el sink de provisioning: " + rawSlug);
+        }
+
+        // Comillado, no solo validado: un identificador entre comillas dobles acepta
+        // cualquier carácter (incluido el guión, que sin comillas rompía la sintaxis
+        // de CREATE SCHEMA — bug encontrado escribiendo los tests de Sub-fase 1,
+        // PostgresSchemaProvisionerIT). Es la segunda capa después de la validación
+        // del regex, no un sustituto de ella.
+        String schema = PostgresIdentifiers.quote("tenant_" + rawSlug);
         // Sustitución de configuración de despliegue, no de entrada de usuario en
         // runtime: `appRole` viene de spring.datasource.username (env var del
         // operador), mismo nivel de confianza que POSTGRES_USER. No es el tipo de

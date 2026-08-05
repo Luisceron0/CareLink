@@ -5,6 +5,7 @@ import com.carelink.identity.domain.Tenant;
 import com.carelink.identity.domain.User;
 import com.carelink.identity.domain.value.Email;
 import com.carelink.identity.domain.value.HashedPassword;
+import com.carelink.identity.domain.value.TenantSlug;
 import com.carelink.identity.domain.port.TenantRepository;
 import com.carelink.identity.domain.port.UserRepository;
 import com.carelink.identity.domain.port.SchemaProvisioner;
@@ -32,7 +33,7 @@ class InMemoryUserRepo implements UserRepository {
 
 class InMemorySchemaProvisioner implements SchemaProvisioner {
     public boolean provisioned = false;
-    @Override public void provisionSchema(String tenantSlug) { this.provisioned = true; }
+    @Override public void provisionSchema(TenantSlug tenantSlug) { this.provisioned = true; }
 }
 
 class InMemoryEmailNotifier implements EmailNotifier {

@@ -654,10 +654,12 @@ artifact that had never run. What is claimed here now is what was observed runni
 Detail in `tasks/lessons.md`, 2026-08-04 and 2026-08-05.
 
 **Known gaps in the built slice**, tracked in `tasks/todo.md`, not claimed as delivered:
-verification tokens have no expiry; `PostgresSchemaProvisioner` still accepts a raw
-`String` tenant slug and would emit invalid SQL for a slug containing a hyphen (AC-05,
-Sub-fase 2); AC-07 ("1 PHI read → 1 audit entry") has no real use case to test against
-yet.
+verification tokens have no expiry; AC-07 ("1 PHI read → 1 audit entry") has no real
+use case to test against yet. AC-05 ("Tenant slug injection rejected at the sink") is
+closed — `SchemaProvisioner.provisionSchema` takes `TenantSlug`, not `String`, and the
+adapter revalidates against `TenantSlug.PATTERN` and quotes the resulting identifier
+before use, which also fixed the hyphenated-slug SQL syntax error found while testing
+Sub-fase 1.
 
 ### 16.2 In scope — Milestone 1 (expanded per author decision, ADR-013 adenda)
 
@@ -870,9 +872,18 @@ their CI gate (blocking, not `|| true`) ships in this same sub-fase — see `ci.
 PostgreSQL (app role rejected on DELETE/UPDATE by GRANT; admin role, which has the
 GRANT as table owner, rejected instead by the trigger — two independent layers, tested
 separately) plus a live `docker compose` run: `information_schema.role_table_grants`
-on `tenant_clinicademo.audit_log` shows `carelink_app → {INSERT, SELECT}` only. AC-05
-through AC-09 remain unbuilt — Sub-fase 2 (AC-05, AC-06, AC-06b, AC-08, AC-09) and
-Sub-fase 2 onward for AC-07 (needs a real PHI read to test against).
+on `tenant_clinicademo.audit_log` shows `carelink_app → {INSERT, SELECT}` only.
+
+**Status, Sub-fase 2 (in progress):** AC-05 — **Pass**.
+`SchemaProvisioner.provisionSchema(TenantSlug)` — not `String` — with the adapter
+revalidating against `TenantSlug.PATTERN` (one pattern, not a second copy that could
+drift, per the ADR-010 lesson) and quoting the resulting identifier
+(`PostgresIdentifiers.quote`) before use. `PostgresSchemaProvisionerIT` evidences both
+halves: a hyphenated slug (`clinica-la-esperanza`) now provisions correctly — it used
+to fail with a raw SQL syntax error, found while testing Sub-fase 1 — and a malicious
+string cannot reach `provisionSchema` at all, because the port's type doesn't accept a
+bare `String` anymore. AC-06, AC-06b, AC-08, AC-09 remain unbuilt (rest of Sub-fase 2);
+AC-07 waits on a real PHI read to test against (Sub-fase 2 onward).
 | AC-11 | No SQLi, header vector included | `sqlmap --level 3`, report committed |
 | AC-13 | Interconsultation access denied after closure | Integration test — grant, close, re-request, expect 403 |
 | AC-14 | Knowledge Engine suppresses results when k<5 | Integration test with seeded near-unique combination |

@@ -2,10 +2,10 @@ package com.carelink.identity.infrastructure.audit;
 
 import com.carelink.identity.domain.audit.AuditEntry;
 import com.carelink.identity.domain.port.AuditEntryPort;
+import com.carelink.identity.domain.value.TenantSlug;
+import com.carelink.identity.infrastructure.persistence.PostgresIdentifiers;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
-
-import java.util.regex.Pattern;
 
 /**
  * Escribe cada {@link AuditEntry} en {@code tenant_<slug>.audit_log} usando el
@@ -15,17 +15,6 @@ import java.util.regex.Pattern;
  */
 @Component
 public class JdbcAuditEntryAdapter implements AuditEntryPort {
-
-    /**
-     * Más estricto que {@code TenantSlug} (que permite guiones): un guión no es un
-     * carácter válido en un identificador de Postgres sin comillas, y acá el slug
-     * se concatena directo en el nombre de la tabla — validar en el sink (ADR-010)
-     * significa validar contra lo que el sink realmente puede aceptar sin romperse,
-     * no reusar a ciegas la validación de otra capa. Reconciliar esto con
-     * {@code TenantSlug} y con {@code PostgresSchemaProvisioner} (que hoy no valida
-     * nada) es AC-05, Sub-fase 2.
-     */
-    private static final Pattern SAFE_SCHEMA_SUFFIX = Pattern.compile("^[a-z][a-z0-9_]{2,63}$");
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -53,10 +42,14 @@ public class JdbcAuditEntryAdapter implements AuditEntryPort {
     }
 
     private String validatedSchema(String tenantSlug) {
-        if (!SAFE_SCHEMA_SUFFIX.matcher(tenantSlug).matches()) {
+        // Mismo patrón que TenantSlug (AC-05) — una sola fuente de verdad del formato
+        // válido, no una copia que puede desalinearse. El comillado de
+        // PostgresIdentifiers es la segunda capa: acepta el guión que TenantSlug
+        // permite y que un identificador sin comillas no admite.
+        if (!TenantSlug.PATTERN.matcher(tenantSlug).matches()) {
             throw new IllegalArgumentException(
-                    "tenantSlug rechazado en el sink de auditoría, no es un sufijo de schema seguro: " + tenantSlug);
+                    "tenantSlug rechazado en el sink de auditoría: " + tenantSlug);
         }
-        return "tenant_" + tenantSlug;
+        return PostgresIdentifiers.quote("tenant_" + tenantSlug);
     }
 }

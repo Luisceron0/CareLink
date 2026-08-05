@@ -141,7 +141,17 @@ construir en 8 frentes a la vez.
       beneficio.
 
 ## Sub-fase 2: Identity (gaps) + Patient + ClinicalEncounter
-- [ ] `SchemaProvisioner.provisionSchema` acepta `TenantSlug`, revalida en el adapter — AC-05
+- [x] `SchemaProvisioner.provisionSchema` acepta `TenantSlug`, revalida en el adapter — AC-05
+      `TenantSlug.PATTERN` expuesto como única fuente de verdad del regex (antes había
+      dos copias divergentes: la del value object y la, más estricta, de
+      `JdbcAuditEntryAdapter`). `PostgresIdentifiers.quote(...)` agregado como segunda
+      capa — comillar el identificador, no solo validarlo, de paso arregla el bug de
+      guión-en-identificador encontrado en Sub-fase 1 (`CREATE SCHEMA tenant_alguna-clinica`
+      fallaba con error de sintaxis SQL crudo). `RegisterTenantUseCase` pasa el value
+      object, no `slug.value()`. Evidencia: `PostgresSchemaProvisionerIT` — provisiona
+      un slug con guión con éxito, y confirma que un slug malicioso no puede llegar a
+      `provisionSchema` porque el port exige `TenantSlug`, no `String`. 14 tests de
+      integración en verde (antes 12).
 - [ ] Rate limiting de login: 5 intentos → lockout 15 min + alerta
 - [ ] `Patient` entity + value objects (documento, tipo sangre, alergias, afiliación EPS/
       SISBEN opcional) — FR-CLN-01

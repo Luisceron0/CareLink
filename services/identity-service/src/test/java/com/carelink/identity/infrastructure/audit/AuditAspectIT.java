@@ -1,5 +1,6 @@
 package com.carelink.identity.infrastructure.audit;
 
+import com.carelink.identity.domain.value.TenantSlug;
 import com.carelink.identity.infrastructure.provisioning.PostgresSchemaProvisioner;
 import com.carelink.identity.support.EmbeddedPostgresSupport;
 import org.junit.jupiter.api.DisplayName;
@@ -48,7 +49,7 @@ class AuditAspectIT {
         JdbcTemplate app = EmbeddedPostgresSupport.appJdbcTemplate(url);
 
         new PostgresSchemaProvisioner(admin, new DefaultResourceLoader(), EmbeddedPostgresSupport.APP_ROLE)
-                .provisionSchema("auditoktenant");
+                .provisionSchema(new TenantSlug("auditoktenant"));
 
         UUID patientId = UUID.randomUUID();
         DummyAuditedService proxy = proxiedService(app);
@@ -71,7 +72,7 @@ class AuditAspectIT {
         JdbcTemplate app = EmbeddedPostgresSupport.appJdbcTemplate(url);
 
         new PostgresSchemaProvisioner(admin, new DefaultResourceLoader(), EmbeddedPostgresSupport.APP_ROLE)
-                .provisionSchema("auditerrtenant");
+                .provisionSchema(new TenantSlug("auditerrtenant"));
 
         DummyAuditedService proxy = proxiedService(app);
 
