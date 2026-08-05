@@ -730,17 +730,17 @@ each sub-fase ends in something runnable and demonstrable, so a stop at any poin
 leaves a working artifact rather than eight half-built modules. See `tasks/todo.md` for
 the task-level breakdown; the sub-fases themselves are normative here:
 
-| Sub-fase | Delivers | Depends on |
-|---|---|---|
-| 0 | Repo hygiene: remove `api-gateway-identity`, purge `.db`, single SRS | — |
-| 1 | `DemoModeGuard` + Audit Log (append-only, AOP-intercepted) | Fase 0 |
-| 2 | Identity gaps closed + Patient + ClinicalEncounter (signed, immutable) | Fase 1 |
-| 3 | Admissions + Triage | Fase 2 |
-| 4 | Health Diary (NANDA/NIC/NOC) + Knowledge Engine (k-anonymity) | Fase 2 |
-| 5 | Interconsultations (with per-request revocation check) | Fase 2, 4 |
-| 6 | Labs + Pharmacy | Fase 2 |
-| 7 | Frontend (React + Vite, role-based SPA) covering Fases 1–6 | Fase 6 |
-| 8 | Security verification end-to-end: sqlmap, semgrep rule extension, CI gates blocking | Fase 7 |
+| Sub-fase | Delivers | Depends on | Status |
+|---|---|---|---|
+| 0 | Repo hygiene: remove `api-gateway-identity`, purge `.db`, single SRS | — | Done, except the `test_identity.db` git-history purge, explicitly reserved for the author's own call |
+| 1 | `DemoModeGuard` + Audit Log (append-only, AOP-intercepted) | Fase 0 | Done |
+| 2 | Identity gaps closed + Patient + ClinicalEncounter (signed, immutable) | Fase 1 | Done except AC-06b (needs `service_id` on `User`); FR-ID-02 (user invitation / role assignment) found missing during live verification, tracked in `tasks/todo.md`, not yet scheduled |
+| 3 | Admissions + Triage | Fase 2 | Not started |
+| 4 | Health Diary (NANDA/NIC/NOC) + Knowledge Engine (k-anonymity) | Fase 2 | Not started |
+| 5 | Interconsultations (with per-request revocation check) | Fase 2, 4 | Not started |
+| 6 | Labs + Pharmacy | Fase 2 | Not started |
+| 7 | Frontend (React + Vite, role-based SPA) covering Fases 1–6 | Fase 6 | Not started |
+| 8 | Security verification end-to-end: sqlmap, semgrep rule extension, CI gates blocking | Fase 7 | Not started |
 
 ### 16.3 Specified — deliberately not built
 
@@ -936,7 +936,7 @@ GRANT as table owner, rejected instead by the trigger — two independent layers
 separately) plus a live `docker compose` run: `information_schema.role_table_grants`
 on `tenant_clinicademo.audit_log` shows `carelink_app → {INSERT, SELECT}` only.
 
-**Status, Sub-fase 2 (in progress):** AC-05 — **Pass**.
+**Status, Sub-fase 2 (closed 2026-08-05):** AC-05 — **Pass**.
 `SchemaProvisioner.provisionSchema(TenantSlug)` — not `String` — with the adapter
 revalidating against `TenantSlug.PATTERN` (one pattern, not a second copy that could
 drift, per the ADR-010 lesson) and quoting the resulting identifier

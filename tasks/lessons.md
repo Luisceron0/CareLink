@@ -191,3 +191,82 @@ espera es ejercitarlo con una aserción de runtime (`SELECT current_user`, no un
 del código) — un test unitario que construye sus propios colaboradores no puede detectar
 un problema de cableado que solo existe cuando Spring arma el grafo de beans completo.
 **Tags:** #arquitectura #seguridad #testing
+
+## [2026-08-05] — Mover un paquete a su "casa" documentada rompió el component-scan en TODO entorno, no solo en tests (segunda ocurrencia de la misma clase de bug que `DataSourceConfig`)
+**Contexto:** `EncryptionService`/`AesGcmEncryptionService` vivían en `com.carelink.identity.*`
+por comodidad de cuándo se escribieron; `copilot-instructions.md` ya documentaba
+`com.carelink.clinical.*` como su paquete destino. Se movieron con `git mv` para alinear
+con la estructura documentada — un cambio que se sentía puramente cosmético.
+**Error cometido:** `com.carelink.clinical` es HERMANO de `com.carelink.identity` (donde
+vive `Application.java`), no un hijo. `@SpringBootApplication` sin `scanBasePackages`
+explícito solo escanea hacia abajo desde su propio paquete — nunca hacia los costados.
+Mover el paquete sacó a TODOS los beans de `clinical` (no solo los movidos, sino
+`RegisterPatientUseCase`, `GetPatientUseCase`, todo lo que ya estaba ahí) del
+component-scan, en la app real corriendo con `docker compose up` tanto como en cualquier
+test — no era un artefacto de configuración de test.
+**Cómo se detectó:** el primer test de `PatientLifecycleIT` (que ya estaba en el
+paquete `clinical`) falló con "No qualifying bean of type ... RegisterPatientUseCase" —
+no un error de cifrado, un error de que Spring nunca había visto la clase.
+**Corrección:** `scanBasePackages = {"com.carelink.identity", "com.carelink.clinical"}`
+explícito en `Application.java`, con un javadoc explicando por qué hace falta.
+**Por qué es la misma lección que `DataSourceConfig` (ver entrada anterior) aunque el
+mecanismo sea distinto:** en ambos casos, un cambio que se ve prolijo y correcto por
+inspección de código (mover una clase a su paquete "correcto"; agregar un bean que
+reemplaza a otro) tiene una consecuencia de runtime que el código en sí no revela —
+Spring decide en silencio, sin log ni excepción, dejar de hacer algo que antes hacía.
+Ninguna de las dos veces la encontró la lectura del diff; las dos veces la encontró
+correr el sistema real (test de integración con contexto completo, o `docker compose up`).
+**Regla para el futuro:** cualquier cambio de paquete o de bean en un proyecto Spring que
+no se prueba de inmediato contra un `@SpringBootTest` de contexto completo (o el stack
+real) es una apuesta. La estructura "documentada" en un `.md` no es la misma garantía que
+un test que arranca el contexto y falla si algo no se resuelve.
+**Tags:** #arquitectura #spring #testing
+
+## [2026-08-05] — El scope `runtime` de una dependencia es real en compilación, no solo en el jar final
+**Contexto:** `JdbcClinicalEncounterRepository.update(...)` necesitaba distinguir el
+rechazo del trigger de inmutabilidad (SQLSTATE `P0409`) de cualquier otro error de base
+de datos, para traducirlo a `EncounterAlreadySignedException` en vez de dejarlo
+propagarse como un 500 genérico.
+**Error cometido:** el primer intento importó `org.postgresql.util.PSQLException`, el
+tipo obvio para leer `getSQLState()` en un proyecto que usa PostgreSQL en todos lados —
+no compiló. `org.postgresql:postgresql` tiene `<scope>runtime</scope>` en el `pom.xml`
+del proyecto (deliberado: nada en el código de aplicación debería depender del driver
+específico), así que la clase simplemente no está en el classpath de compilación,
+aunque sí lo esté en tests y en el jar final — el error solo aparece al compilar código
+nuevo que la referencia, no al correr nada existente.
+**Corrección:** `java.sql.SQLException` (API JDBC estándar) también expone
+`getSQLState()` — es lo que hay que usar cuando lo único que hace falta es leer el
+SQLSTATE, no ninguna otra funcionalidad específica del driver de Postgres.
+**Regla para el futuro:** antes de importar una clase de `org.postgresql.*` en código de
+`main` (no de test), preguntar si la API JDBC estándar (`java.sql.*`) ya cubre lo que
+hace falta — casi siempre sí para lectura de errores (`SQLException.getSQLState()`,
+`getErrorCode()`). El scope `runtime` del driver en el pom es una decisión de diseño
+existente, no un accidente a rodear con un import puntual.
+**Tags:** #java #build
+
+## [2026-08-05] — Un flujo completo de sub-fase se armó sobre un actor (`PHYSICIAN`) que el sistema no puede crear
+**Contexto:** al verificar `ClinicalEncounterController` (que exige rol `PHYSICIAN` para
+registrar/editar/firmar) contra `docker compose up`, hizo falta un JWT con ese rol para
+probar el camino feliz, no solo el 403 de rol incorrecto.
+**Error cometido / gap encontrado:** no existe ningún flujo — ni endpoint, ni caso de
+uso — para crear un usuario con un rol distinto de `TENANT_ADMIN`. El registro de tenant
+(`RegisterTenantUseCase`) crea exactamente un usuario, siempre `TENANT_ADMIN`. FR-ID-02
+(invitación de usuarios con asignación de rol) nunca se construyó, y nada en Sub-fase 0
+o 1 lo hubiera revelado porque ninguna de esas dos sub-fases necesitaba un segundo rol
+para demostrarse.
+**Cómo se resolvió puntualmente (sin tratarlo como arreglado):** `UPDATE users SET
+role='PHYSICIAN' ...` directo contra la base del contenedor corriendo, solo para poder
+completar esta verificación puntual — explícitamente narrado como un atajo de test, no
+como algo que el producto en sí puede hacer.
+**Por qué importa más allá de este ítem:** Sub-fases 3 a 6 dependen de roles que hoy son
+igual de inalcanzables (`NURSE`, `SPECIALIST`, `LAB_TECH`, `PHARMACIST`, `ADMISSIONS`).
+Sin resolver esto, la verificación en vivo de esas sub-fases se degrada al mismo atajo de
+SQL directo, que no prueba nada sobre el producto real — sería repetir el mismo problema
+que esta sesión evitó activamente en Sub-fase 1 y 2 (no confiar en verificación que no
+pasa por el sistema real).
+**Regla para el futuro:** construir FR-ID-02 no estaba en el alcance de ningún ítem de
+Sub-fase 2 planeado — no se resolvió en silencio ampliando el alcance; se documentó como
+gap explícito en `docs/SRS.md` y `tasks/todo.md`, a la espera de decidir si se prioriza
+antes de continuar a Sub-fase 3, o si Sub-fase 3+ tolera el mismo atajo de verificación
+un poco más.
+**Tags:** #alcance #identity #testing
