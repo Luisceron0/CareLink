@@ -1,5 +1,6 @@
 package com.carelink.identity.infrastructure.audit;
 
+import com.carelink.identity.domain.value.TenantSlug;
 import com.carelink.identity.infrastructure.provisioning.PostgresSchemaProvisioner;
 import com.carelink.identity.support.EmbeddedPostgresSupport;
 import org.junit.jupiter.api.DisplayName;
@@ -39,7 +40,7 @@ class AuditLogAppendOnlyIT {
         JdbcTemplate app = EmbeddedPostgresSupport.appJdbcTemplate(url);
 
         new PostgresSchemaProvisioner(admin, new DefaultResourceLoader(), EmbeddedPostgresSupport.APP_ROLE)
-                .provisionSchema("ac10tenant");
+                .provisionSchema(new TenantSlug("ac10tenant"));
 
         app.update("INSERT INTO tenant_ac10tenant.audit_log (action) VALUES (?)", "TEST_INSERT");
         Integer inserted = app.queryForObject("SELECT count(*) FROM tenant_ac10tenant.audit_log", Integer.class);
@@ -65,7 +66,7 @@ class AuditLogAppendOnlyIT {
         JdbcTemplate admin = EmbeddedPostgresSupport.adminJdbcTemplate(url);
 
         new PostgresSchemaProvisioner(admin, new DefaultResourceLoader(), EmbeddedPostgresSupport.APP_ROLE)
-                .provisionSchema("triggertenant");
+                .provisionSchema(new TenantSlug("triggertenant"));
 
         admin.update("INSERT INTO tenant_triggertenant.audit_log (action) VALUES (?)", "TEST_INSERT");
 
