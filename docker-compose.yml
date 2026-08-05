@@ -65,7 +65,9 @@ services:
       REFRESH_TOKEN_HMAC_SECRET: ${REFRESH_TOKEN_HMAC_SECRET:?definí REFRESH_TOKEN_HMAC_SECRET en tu .env}
       REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-604800}
       MAX_CONCURRENT_SESSIONS: ${MAX_CONCURRENT_SESSIONS:-3}
-      CLINIC_ENCRYPTION_KEY: ${CLINIC_ENCRYPTION_KEY:-}
+      # AesGcmEncryptionService falla al arrancar sin esto (AC-09) — ya no es una
+      # variable sin efecto. 32 bytes en base64: `openssl rand -base64 32`.
+      CLINIC_ENCRYPTION_KEY: ${CLINIC_ENCRYPTION_KEY:?definí CLINIC_ENCRYPTION_KEY en tu .env (openssl rand -base64 32)}
       KNOWLEDGE_ANONYMITY_THRESHOLD: ${KNOWLEDGE_ANONYMITY_THRESHOLD:-5}
     ports:
       - "${BACKEND_PORT:-8080}:8080"

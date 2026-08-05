@@ -141,6 +141,18 @@ construir en 8 frentes a la vez.
       beneficio.
 
 ## Sub-fase 2: Identity (gaps) + Patient + ClinicalEncounter
+- [x] **Contexto de tenant en el request autenticado** (no estaba en el plan, pero
+      Patient/ClinicalEncounter no pueden saber en qué schema operar sin esto). El JWT
+      ya llevaba `tenant_id` desde Sub-fase 1, pero `JwtAuthenticationFilter` nunca lo
+      extraía — el principal era el `sub` crudo. `AuthenticatedPrincipal` (userId,
+      tenantId, role) reemplaza el `String` suelto. Implementa la interfaz
+      `org.springframework.security.core.AuthenticatedPrincipal` y sobreescribe
+      `getName()` explícitamente — sin eso, `Authentication.getName()` habría devuelto
+      la representación completa del record en vez del userId, rompiendo en silencio
+      tanto `AuditAspect` (identificación de usuario en el audit log) como
+      `ProtectedController`. Encontrado razonando sobre el cambio antes de correrlo, no
+      después — el test existente (`$.sub` en `AuthControllerSecurityIT`) lo habría
+      detectado igual, pero mejor no depender de eso.
 - [x] `SchemaProvisioner.provisionSchema` acepta `TenantSlug`, revalida en el adapter — AC-05
       `TenantSlug.PATTERN` expuesto como única fuente de verdad del regex (antes había
       dos copias divergentes: la del value object y la, más estricta, de
@@ -172,9 +184,25 @@ construir en 8 frentes a la vez.
       "Unhandled exception discloses internals" y no está construido.
 - [ ] `Patient` entity + value objects (documento, tipo sangre, alergias, afiliación EPS/
       SISBEN opcional) — FR-CLN-01
-- [ ] `EncryptionService` (AES-256-GCM, IV aleatorio por operación, clave por tenant) —
+- [x] `EncryptionService` (AES-256-GCM, IV aleatorio por operación, clave por tenant) —
       aplicado a columnas PHI de `Patient`
-- [ ] Test: SELECT directo sobre columna cifrada no devuelve texto plano — AC-09
+      `AesGcmEncryptionService`: clave maestra (`CLINIC_ENCRYPTION_KEY`, 32 bytes) +
+      clave por tenant DERIVADA vía HMAC-SHA256 sobre el slug — decisión de diseño, no
+      cerrada del todo por el SRS (§8.3 pide "clave por tenant" sin especificar
+      almacenamiento; no existe todavía un Vault por tenant). Documentado en el javadoc
+      de la clase como punto a revisar si un milestone futuro agrega gestión de
+      secretos por tenant. Falla al construirse sin la clave — arrancar con cifrado
+      efectivamente desactivado no es una opción.
+- [x] Test: SELECT directo sobre columna cifrada no devuelve texto plano — AC-09
+      `PhiColumnCannotBeReadAsPlaintextIT`: INSERT vía rol de aplicación de un valor ya
+      cifrado en `tenant_ac09tenant.patients.full_name`, SELECT directo confirma que no
+      es el texto plano ni lo contiene, y `decrypt(...)` confirma que sigue siendo el
+      dato correcto. `AesGcmEncryptionServiceTest` (7 tests) cubre el algoritmo en
+      aislamiento: round-trip, IV distinto en cada cifrado del mismo valor, clave
+      distinta por tenant (un ciphertext de un tenant no descifra bajo el slug de otro),
+      y que un valor alterado falla la verificación GCM en vez de decodificar a basura
+      silenciosamente. De paso: `tenant_template.sql` no otorgaba ningún grant sobre
+      `patients` — solo `audit_log` lo tenía — agregado SELECT/INSERT para `{{app_role}}`.
 - [ ] `ClinicalEncounter` con firma (soft signature), inmutable a nivel DB tras firmar —
       FR-CLN-02
 - [ ] Test: PUT sobre encounter firmado → 409 — AC-08
