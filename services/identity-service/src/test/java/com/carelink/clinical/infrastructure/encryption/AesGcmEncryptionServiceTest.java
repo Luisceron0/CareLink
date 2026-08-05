@@ -1,4 +1,4 @@
-package com.carelink.identity.infrastructure.encryption;
+package com.carelink.clinical.infrastructure.encryption;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

@@ -1,4 +1,4 @@
-package com.carelink.identity.domain.port;
+package com.carelink.clinical.domain.port;
 
 /**
  * Cifrado de columnas PHI — AES-256-GCM, IV aleatorio por operación, clave por tenant

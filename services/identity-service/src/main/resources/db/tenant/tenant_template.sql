@@ -2,15 +2,25 @@
 -- search_path apuntando a `tenant_<slug>`, así que las referencias sin calificar
 -- de acá abajo resuelven contra el schema del tenant que se está provisionando.
 
--- Placeholder de la Sub-fase 0/1, sin cifrar. La Sub-fase 2 no la extiende: la
--- reemplaza por la entidad Patient real (documento, tipo de sangre, alergias,
--- afiliación EPS/SISBEN — FR-CLN-01) con las columnas PHI pasadas por
--- EncryptionService (AES-256-GCM, AC-09). Ninguna columna que se agregue a ESTA
--- tabla debe llevar PHI sin cifrar primero.
+-- Patient (FR-CLN-01). Primer corte, no el formulario de admisión completo —
+-- contacto, contacto de emergencia, medicación activa y afiliación EPS/SISBEN
+-- quedan para después (ver el javadoc de Patient.java).
+--
+-- Las columnas PHI son TEXT aunque su tipo lógico no lo sea (date_of_birth es
+-- una fecha, no texto) porque lo que se guarda es base64(IV + ciphertext) —
+-- JdbcPatientRepository cifra antes de escribir y descifra al leer.
+-- document_type, sex y blood_type NO se cifran: son categóricos, no
+-- identifican por sí solos (igual criterio que `role` en la tabla `users`).
 CREATE TABLE IF NOT EXISTS patients (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    full_name TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    full_name        TEXT        NOT NULL, -- cifrado
+    document_type    TEXT        NOT NULL,
+    document_number  TEXT        NOT NULL, -- cifrado
+    date_of_birth    TEXT        NOT NULL, -- cifrado
+    sex              TEXT        NOT NULL,
+    blood_type       TEXT        NOT NULL,
+    allergies        TEXT,                 -- cifrado, JSON serializado
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- audit_log (FR-CLN-13, SRS §10) — append-only, por tenant. Cada lectura,

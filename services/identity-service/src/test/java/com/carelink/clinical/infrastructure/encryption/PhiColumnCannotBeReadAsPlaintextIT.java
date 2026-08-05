@@ -1,4 +1,4 @@
-package com.carelink.identity.infrastructure.encryption;
+package com.carelink.clinical.infrastructure.encryption;
 
 import com.carelink.identity.domain.value.TenantSlug;
 import com.carelink.identity.infrastructure.provisioning.PostgresSchemaProvisioner;
@@ -16,10 +16,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * valor cifrado, insertado por el rol de aplicación, leído con un SELECT directo, no es
  * texto plano.
  *
- * <p>Usa {@code tenant_<slug>.patients.full_name} — la tabla placeholder de la Sub-fase
- * 0/1, todavía sin la entidad Patient real (FR-CLN-01, próximo paso de esta sub-fase).
- * Lo que este test evidencia es el comportamiento de la columna cifrada en sí, que no
- * depende de que el resto del dominio Patient ya exista.
+ * <p>Usa {@code tenant_<slug>.patients.full_name} directo por SQL, sin pasar por
+ * {@code Patient}/{@code JdbcPatientRepository} — a propósito: {@code PatientLifecycleIT}
+ * ya cubre el flujo real de punta a punta; esto queda como la prueba mínima e
+ * independiente de que la combinación cifrado+columna funciona, sin depender de que el
+ * resto de la capa de dominio esté bien cableada.
  */
 class PhiColumnCannotBeReadAsPlaintextIT {
 
@@ -39,8 +40,14 @@ class PhiColumnCannotBeReadAsPlaintextIT {
         String encrypted = encryption.encrypt(plaintext, "ac09tenant");
 
         // El rol de aplicación escribe el valor YA cifrado — EncryptionService cifra
-        // antes de que el dato le llegue a JDBC, nunca al revés.
-        app.update("INSERT INTO tenant_ac09tenant.patients (full_name) VALUES (?)", encrypted);
+        // antes de que el dato le llegue a JDBC, nunca al revés. Las demás columnas
+        // NOT NULL de patients no son PHI en foco de este test — valores mínimos
+        // válidos, sin cifrar, para satisfacer el esquema.
+        app.update("INSERT INTO tenant_ac09tenant.patients " +
+                        "(full_name, document_type, document_number, date_of_birth, sex, blood_type) " +
+                        "VALUES (?, 'CEDULA_CIUDADANIA', ?, ?, 'UNKNOWN', 'UNKNOWN')",
+                encrypted, encryption.encrypt("000000", "ac09tenant"),
+                encryption.encrypt(java.time.LocalDate.of(2000, 1, 1).toString(), "ac09tenant"));
 
         String storedRaw = admin.queryForObject(
                 "SELECT full_name FROM tenant_ac09tenant.patients", String.class);

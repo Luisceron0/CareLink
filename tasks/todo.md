@@ -182,8 +182,35 @@ construir en 8 frentes a la vez.
       de todos modos, pero otras excepciones sin manejar (`/refresh`, `/verify`) siguen
       devolviendo 500 genérico. SRS §8.1 lo declara como mitigación de la fila
       "Unhandled exception discloses internals" y no está construido.
-- [ ] `Patient` entity + value objects (documento, tipo sangre, alergias, afiliación EPS/
+- [x] `Patient` entity + value objects (documento, tipo sangre, alergias, afiliación EPS/
       SISBEN opcional) — FR-CLN-01
+      Primer corte: fullName, DocumentId (tipo+número, con validación básica cédula vs.
+      pasaporte), fecha de nacimiento, sexo, tipo de sangre, alergias. Contacto, contacto
+      de emergencia, medicación activa y afiliación EPS/SISBEN quedan diferidos a
+      propósito — extender es agregar campos, no rediseñar (ver el javadoc de Patient).
+      `JdbcPatientRepository`: JDBC directo con schema comillado, no JPA — mismo patrón
+      que `JdbcAuditEntryAdapter` (Patient vive en schema dinámico por tenant, JPA no
+      resuelve eso sin adoptar multi-tenencia completa de Hibernate). Cifra por campo al
+      guardar, descifra al leer — el dominio nunca ve un valor cifrado.
+      `POST/GET /api/v1/patients`, verificado por HTTP real contra `docker compose up`:
+      201 al crear, 200 al leer con datos correctos, fila cruda en la base cifrada,
+      `audit_log` con `PATIENT_CREATE` y `PATIENT_READ`, y un segundo tenant leyendo el
+      paciente del primero → 403 (AC-06, ver más abajo).
+      **Hallazgo real durante esta tarea:** mover `EncryptionService` al paquete
+      `com.carelink.clinical` (para alinear con la estructura ya documentada en
+      copilot-instructions.md) rompió el component-scan de Spring — `clinical` es
+      HERMANO de `identity`, no hijo, y `@SpringBootApplication` solo escanea hacia
+      abajo desde su propio paquete. Ningún bean de `clinical` se registraba, en NINGÚN
+      entorno, incluida la app real. Corregido con `scanBasePackages` explícito en
+      `Application.java`. Encontrado por el primer test de `PatientLifecycleIT`, no
+      por inspección — el mismo patrón de "un cambio que parece prolijo tiene una
+      consecuencia de runtime no obvia" que ya pasó dos veces con `DataSourceConfig`
+      en Sub-fase 1 (ver `tasks/lessons.md`).
+      **`RegisterPatientUseCase`/`GetPatientUseCase` son `@Component`, no instanciados a
+      mano como el resto de los casos de uso del repo** — necesario para que
+      `@Auditable` los intercepte (Spring solo aplica proxies AOP a sus propios beans).
+      Documentado en el javadoc de ambas clases como excepción deliberada al patrón
+      existente, no una inconsistencia accidental.
 - [x] `EncryptionService` (AES-256-GCM, IV aleatorio por operación, clave por tenant) —
       aplicado a columnas PHI de `Patient`
       `AesGcmEncryptionService`: clave maestra (`CLINIC_ENCRYPTION_KEY`, 32 bytes) +
@@ -206,9 +233,25 @@ construir en 8 frentes a la vez.
 - [ ] `ClinicalEncounter` con firma (soft signature), inmutable a nivel DB tras firmar —
       FR-CLN-02
 - [ ] Test: PUT sobre encounter firmado → 409 — AC-08
+- [x] Test: lectura cross-tenant → 403 — AC-06 (para `/api/v1/patients`, el único
+      endpoint clínico que existe hasta ahora)
+      No es una comparación en runtime "¿el tenant pedido es el mío?" — no existe un
+      tenant pedido que comparar: `PatientController` resuelve el tenant siempre desde
+      `AuthenticatedPrincipal.tenantId()` (el JWT), nunca de un parámetro que el cliente
+      controle. Un intento cross-tenant y un id inexistente devuelven la misma respuesta
+      (403) — indistinguibles a propósito, para que un 403 nunca confirme que el recurso
+      existe en el tenant de otro. Verificado en `PatientLifecycleIT` y por HTTP real
+      contra `docker compose up` (dos tenants, un JWT cada uno, el segundo intenta leer
+      el paciente del primero → 403).
 - [ ] Autorización cross-tenant y cross-`service_id` en todo endpoint clínico
-- [ ] Test: lectura cross-tenant → 403 — AC-06; lectura cross-service dentro del mismo
-      tenant → 403 — AC-06b (cobertura 100% en este path)
+      Sigue abierto: el patrón de AC-06 (tenant derivado del JWT, nunca de un parámetro)
+      queda establecido con Patient, pero "en TODO endpoint clínico" recién se puede
+      cerrar cuando haya más de un endpoint para reverificar contra él.
+- [ ] Test: lectura cross-service dentro del mismo tenant → 403 — AC-06b (cobertura 100%
+      en este path)
+      Requiere agregar `service_id` a `User` (no existe todavía — FR-ID-02 lo pide,
+      nunca se construyó) + un migration V4 + el flujo de invitación de usuarios
+      asignando `service_id`. Más grande que un ítem de checklist; es su propia tarea.
 
 ## Sub-fase 3: Admissions + Triage
 - [ ] `Admission` entity + clasificación Triage Manchester (prioridad 1–5) — FR-CLN-03

@@ -21,6 +21,9 @@ import static org.junit.jupiter.api.Assertions.*;
 class InMemoryTenantRepo implements TenantRepository {
     private java.util.Map<String, Tenant> map = new java.util.HashMap<>();
     @Override public Optional<Tenant> findBySlug(String slug) { return Optional.ofNullable(map.get(slug)); }
+    @Override public Optional<Tenant> findById(java.util.UUID id) {
+        return map.values().stream().filter(t -> t.id().equals(id)).findFirst();
+    }
     @Override public void save(Tenant tenant) { map.put(tenant.slug().value(), tenant); }
 }
 

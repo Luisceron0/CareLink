@@ -262,7 +262,19 @@ public demo is deployed, §15).
 
 ### 5.3 Patient Management
 
-> **Status: TO BE BUILT — Milestone 1, Sub-fase 2.**
+> **Status: BUILT (core fields).** `Patient`, `PatientRepository`/`JdbcPatientRepository`,
+> `POST/GET /api/v1/patients`. Verified against a live `docker compose` run end to end:
+> HTTP 201 on create, HTTP 200 on read with correctly decrypted values, the raw DB row
+> showing ciphertext (not plaintext) for the encrypted columns, and `audit_log` carrying
+> both the `PATIENT_CREATE` and `PATIENT_READ` rows (AC-07 — no longer a placeholder). A
+> second tenant's token reading the first tenant's patient got HTTP 403 (AC-06).
+>
+> **Deliberately not built in this pass:** contact, emergency contact, active
+> medications, EPS/SISBEN affiliation. FR-CLN-01 lists them; this first cut demonstrates
+> the full pattern (value objects, per-field encryption, tenant-schema isolation) on a
+> representative subset rather than building the whole intake form before proving the
+> pattern works. Extending `Patient` with the remaining fields is additive, not a
+> redesign.
 
 #### FR-CLN-01 — Patient Registration
 Captures: full name, document type + number (with i18n validation — Colombian cédula vs.
@@ -649,24 +661,30 @@ PR opened →
 
 ### 16.1 Delivered and verified today
 
-*Last verified 2026-08-05, end of Sub-fase 1 — by running the system, not by reading it.*
+*Last verified 2026-08-05, mid Sub-fase 2 — by running the system, not by reading it.*
 
 - Tenant registration with schema-per-tenant provisioning, exercised end-to-end against
   a live `docker compose up` stack: `POST /api/v1/auth/register` creates the `Tenant`
   and `User` rows (via JPA, under the restricted `carelink_app` role) and provisions
   `tenant_<slug>` (via the admin role) in one call
-- Password auth (Argon2id), JWT (RS256, JWKS, Vault key provider)
-- Refresh token rotation, hexagonal layering
+- Password auth (Argon2id), JWT (RS256, JWKS, Vault key provider), login rate limiting
+  (FR-ID-03, §5.1)
+- Refresh token rotation, hexagonal layering, tenant context propagated from the JWT to
+  every authenticated request (`AuthenticatedPrincipal`)
 - `DemoModeGuard` (AC-01, AC-02) and the two-role database model (AC-10) — see §5.10,
   §15.2
-- 23 unit tests + 12 integration tests green, `./mvnw verify` from the repository root
+- `Patient` (core fields), AES-256-GCM PHI encryption (AC-09), audit-on-read/write
+  (AC-07), tenant-isolated reads (AC-06) — §5.3, §5.10. `AC-05` closed:
+  `SchemaProvisioner` takes `TenantSlug`, not `String`
+- 31 unit tests + 19 integration tests green, `./mvnw verify` from the repository root
   (Zonky-embedded PostgreSQL 16, not a double — §13)
-- **The application starts, and its own traffic runs as the role it claims to.**
-  `docker compose up` brings up backend + PostgreSQL 16 + frontend placeholder, backend
-  reporting `{"status":"UP"}` (ADR-012); `pg_stat_activity` on that live stack shows
-  JPA/application connections under `carelink_app`, the admin pool (2 connections, not
-  Hikari's default 10 — sized for its one rare consumer) under `carelink` — see §5.10 for
-  how this was confirmed, and how the confirmation itself took three attempts
+- **The application starts, its own traffic runs as the role it claims to, and a full
+  clinical read/write round-trip works over real HTTP.** `docker compose up` brings up
+  backend + PostgreSQL 16 + frontend placeholder; `pg_stat_activity` on that live stack
+  shows JPA/application connections under `carelink_app`, the admin pool (2 connections)
+  under `carelink`; `POST /api/v1/patients` → 201, `GET /api/v1/patients/{id}` → 200
+  with correctly decrypted data, the raw DB row holding ciphertext, `audit_log` carrying
+  both operations, and a second tenant's token reading the first tenant's patient → 403
 
 **Correction to the previous wording of this section.** Until 2026-08-04 this list
 claimed Identity was "verified", on the strength of a green test suite. It was not: no
@@ -915,8 +933,28 @@ operation, per-tenant key derivation (a tenant's ciphertext doesn't decrypt unde
 another tenant's slug), and GCM authentication (a tampered value fails to decrypt
 instead of silently returning garbage).
 
-AC-06, AC-06b, AC-08 remain unbuilt (rest of Sub-fase 2); AC-07 waits on a real PHI
-read to test against (Sub-fase 2 onward).
+AC-06 — **Pass** (for the one clinical endpoint that exists so far, `/api/v1/patients`).
+Not a runtime check comparing "requested tenant" against "caller's tenant" — there is no
+requested-tenant input to compare against. The tenant used for every query is derived
+server-side from the authenticated JWT (`AuthenticatedPrincipal.tenantId()` →
+`TenantRepository.findById` → slug); a client cannot supply a different one. Verified
+both at the repository level (`PatientLifecycleIT`) and over real HTTP against a live
+compose stack: a second tenant's valid JWT reading the first tenant's patient got 403.
+A cross-tenant attempt and a nonexistent ID return the identical response (empty
+`Optional` → 403) — deliberately indistinguishable, so a 403 never confirms a resource
+exists in someone else's tenant. AC-06b needs `service_id` on `User`, which doesn't
+exist yet — next task, along with re-verifying AC-06 holds as more clinical endpoints
+are added (one endpoint passing doesn't mean the pattern is applied everywhere yet).
+
+AC-07 — **Pass**. `GetPatientUseCase.execute` carries `@Auditable`; reading a patient
+produces exactly one `audit_log` row (`PATIENT_READ`, with `patient_id`) per read,
+confirmed via `PatientLifecycleIT` and live against compose. `RegisterPatientUseCase`
+is audited too (`PATIENT_CREATE`) — without a `patient_id`, because the aspect
+evaluates SpEL against the method's *arguments*, and the ID is generated inside the
+method, after the join point is captured; extending the aspect to also read the return
+value is a real gap, not fixed here.
+
+AC-08 remains unbuilt (rest of Sub-fase 2).
 | AC-11 | No SQLi, header vector included | `sqlmap --level 3`, report committed |
 | AC-13 | Interconsultation access denied after closure | Integration test — grant, close, re-request, expect 403 |
 | AC-14 | Knowledge Engine suppresses results when k<5 | Integration test with seeded near-unique combination |
