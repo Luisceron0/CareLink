@@ -25,4 +25,14 @@ public class SmtpEmailNotifier implements EmailNotifier {
         msg.setText("Please verify your email using this token: " + token);
         mailSender.send(msg);
     }
+
+    @Override
+    public void sendInvitationEmail(String to, String token, String role) {
+        SimpleMailMessage msg = new SimpleMailMessage();
+        msg.setTo(to);
+        if (from != null && !from.isEmpty()) msg.setFrom(from);
+        msg.setSubject("CareLink - You've been invited as " + role);
+        msg.setText("Set your password to activate your account using this token: " + token);
+        mailSender.send(msg);
+    }
 }

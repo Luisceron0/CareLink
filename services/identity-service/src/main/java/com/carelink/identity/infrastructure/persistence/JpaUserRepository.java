@@ -2,6 +2,7 @@ package com.carelink.identity.infrastructure.persistence;
 
 import com.carelink.identity.domain.User;
 import com.carelink.identity.domain.value.Email;
+import com.carelink.identity.domain.value.HashedPassword;
 import com.carelink.identity.domain.port.UserRepository;
 import com.carelink.identity.infrastructure.persistence.entity.UserEntity;
 import com.carelink.identity.infrastructure.persistence.jpa.UserJpaRepository;
@@ -20,17 +21,23 @@ public class JpaUserRepository implements UserRepository {
 
     @Override
     public Optional<User> findByEmail(String email) {
-        return jpa.findByEmail(email).map(e -> new User(e.getId(), e.getTenantId(), new Email(e.getEmail()), e.getRole(), new com.carelink.identity.domain.value.HashedPassword(e.getPassword()), e.getCreatedAt()));
+        return jpa.findByEmail(email).map(this::toDomain);
     }
 
     @Override
     public Optional<User> findById(UUID id) {
-        return jpa.findById(id).map(e -> new User(e.getId(), e.getTenantId(), new Email(e.getEmail()), e.getRole(), new com.carelink.identity.domain.value.HashedPassword(e.getPassword()), e.getCreatedAt()));
+        return jpa.findById(id).map(this::toDomain);
     }
 
     @Override
     public void save(User user) {
-        UserEntity entity = new UserEntity(user.id(), user.tenantId(), user.email().value(), user.role(), user.password().value(), user.createdAt());
+        UserEntity entity = new UserEntity(user.id(), user.tenantId(), user.email().value(), user.role(),
+                user.serviceId(), user.active(), user.password().value(), user.createdAt());
         jpa.save(entity);
+    }
+
+    private User toDomain(UserEntity e) {
+        return new User(e.getId(), e.getTenantId(), new Email(e.getEmail()), e.getRole(), e.getServiceId(),
+                e.isActive(), new HashedPassword(e.getPassword()), e.getCreatedAt());
     }
 }

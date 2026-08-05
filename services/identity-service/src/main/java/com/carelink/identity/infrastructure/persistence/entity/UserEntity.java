@@ -17,6 +17,11 @@ public class UserEntity {
 
     private String role;
 
+    @Column(name = "service_id")
+    private String serviceId;
+
+    private boolean active;
+
     @Column(name = "password")
     private String password;
 
@@ -25,11 +30,14 @@ public class UserEntity {
 
     public UserEntity() {}
 
-    public UserEntity(UUID id, UUID tenantId, String email, String role, String password, OffsetDateTime createdAt) {
+    public UserEntity(UUID id, UUID tenantId, String email, String role, String serviceId, boolean active,
+                       String password, OffsetDateTime createdAt) {
         this.id = id;
         this.tenantId = tenantId;
         this.email = email;
         this.role = role;
+        this.serviceId = serviceId;
+        this.active = active;
         this.password = password;
         this.createdAt = createdAt;
     }
@@ -42,6 +50,10 @@ public class UserEntity {
     public void setEmail(String email) { this.email = email; }
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }
+    public String getServiceId() { return serviceId; }
+    public void setServiceId(String serviceId) { this.serviceId = serviceId; }
+    public boolean isActive() { return active; }
+    public void setActive(boolean active) { this.active = active; }
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
     public OffsetDateTime getCreatedAt() { return createdAt; }

@@ -1,9 +1,11 @@
 package com.carelink.identity.infrastructure.web;
 
+import com.carelink.identity.application.dto.AcceptInvitationRequest;
 import com.carelink.identity.application.dto.AuthResponse;
 import com.carelink.identity.application.dto.LoginRequest;
 import com.carelink.identity.application.dto.RegisterTenantRequest;
 import com.carelink.identity.application.dto.RefreshRequest;
+import com.carelink.identity.application.usecase.AcceptInvitationUseCase;
 import com.carelink.identity.application.usecase.LoginUseCase;
 import com.carelink.identity.application.usecase.RegisterTenantUseCase;
 import com.carelink.identity.application.usecase.VerifyEmailUseCase;
@@ -12,6 +14,7 @@ import com.carelink.identity.application.usecase.LogoutUseCase;
 import com.carelink.identity.domain.Tenant;
 import com.carelink.identity.domain.User;
 import com.carelink.identity.domain.Session;
+import com.carelink.identity.domain.exception.InvalidInvitationTokenException;
 import com.carelink.identity.domain.port.*;
 import com.carelink.identity.infrastructure.security.JwtService;
 import com.carelink.identity.infrastructure.security.LoginRateLimiter;
@@ -32,6 +35,7 @@ public class AuthController {
     private final RegisterTenantUseCase registerTenantUseCase;
     private final LoginUseCase loginUseCase;
     private final VerifyEmailUseCase verifyEmailUseCase;
+    private final AcceptInvitationUseCase acceptInvitationUseCase;
     private final RefreshTokenUseCase refreshTokenUseCase;
     private final LogoutUseCase logoutUseCase;
     private final JwtService jwtService;
@@ -50,6 +54,7 @@ public class AuthController {
         this.registerTenantUseCase = new RegisterTenantUseCase(tenantRepository, userRepository, schemaProvisioner, emailNotifier, passwordEncoder, tokenRepository);
         this.loginUseCase = new LoginUseCase(userRepository, passwordEncoder, sessionRepository);
         this.verifyEmailUseCase = new VerifyEmailUseCase(tokenRepository);
+        this.acceptInvitationUseCase = new AcceptInvitationUseCase(tokenRepository, userRepository, passwordEncoder);
         this.refreshTokenUseCase = new RefreshTokenUseCase(session_repository(sessionRepository));
         this.logoutUseCase = new LogoutUseCase(session_repository(sessionRepository));
         this.jwtService = jwtService;
@@ -110,6 +115,17 @@ public class AuthController {
     public ResponseEntity<?> verify(@RequestParam("token") String token) {
         user_id_check(verifyEmailUseCase.execute(token));
         return ResponseEntity.ok(Map.of("verified", true));
+    }
+
+    /** FR-ID-02 — el usuario invitado fija su contraseña con el token que recibió y activa su cuenta. */
+    @PostMapping("/accept-invite")
+    public ResponseEntity<?> acceptInvite(@RequestBody AcceptInvitationRequest req) {
+        try {
+            acceptInvitationUseCase.execute(req.getToken(), req.getPassword());
+        } catch (InvalidInvitationTokenException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
+        }
+        return ResponseEntity.ok(Map.of("activated", true));
     }
 
     @PostMapping("/refresh")

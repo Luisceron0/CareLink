@@ -42,7 +42,11 @@ class InMemorySchemaProvisioner implements SchemaProvisioner {
 class InMemoryEmailNotifier implements EmailNotifier {
     public String lastTo;
     public String lastToken;
+    public String lastRole;
     @Override public void sendVerificationEmail(String to, String token) { this.lastTo = to; this.lastToken = token; }
+    @Override public void sendInvitationEmail(String to, String token, String role) {
+        this.lastTo = to; this.lastToken = token; this.lastRole = role;
+    }
 }
 
 class InMemoryPasswordEncoder implements PasswordEncoder {

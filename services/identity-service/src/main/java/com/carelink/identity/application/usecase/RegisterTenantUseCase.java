@@ -53,7 +53,8 @@ public class RegisterTenantUseCase {
 
         // Create initial TENANT_ADMIN user
         String hashed = passwordEncoder.encode(rawPassword);
-        User admin = new User(UUID.randomUUID(), tenant.id(), new Email(adminEmail), "TENANT_ADMIN", new HashedPassword(hashed), OffsetDateTime.now());
+        User admin = new User(UUID.randomUUID(), tenant.id(), new Email(adminEmail), "TENANT_ADMIN", null, true,
+                new HashedPassword(hashed), OffsetDateTime.now());
         userRepository.save(admin);
 
         // Create verification token and send email

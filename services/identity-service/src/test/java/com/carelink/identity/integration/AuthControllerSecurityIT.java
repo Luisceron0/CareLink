@@ -65,7 +65,7 @@ public class AuthControllerSecurityIT {
     void loginGeneratesTokenAndSecuresEndpoint() throws Exception {
         UUID userId = UUID.randomUUID();
         UUID tenantId = UUID.randomUUID();
-        User user = new User(userId, tenantId, new Email("u@example.com"), "TENANT_ADMIN", new HashedPassword("enc:secret"), OffsetDateTime.now());
+        User user = new User(userId, tenantId, new Email("u@example.com"), "TENANT_ADMIN", null, true, new HashedPassword("enc:secret"), OffsetDateTime.now());
 
         when(userRepository.findByEmail("u@example.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("secret", "enc:secret")).thenReturn(true);
@@ -118,7 +118,7 @@ public class AuthControllerSecurityIT {
         // fueran correctas, el lockout se verifica antes de tocar LoginUseCase.
         UUID userId = UUID.randomUUID();
         UUID tenantId = UUID.randomUUID();
-        User user = new User(userId, tenantId, new Email("victima@example.com"), "TENANT_ADMIN",
+        User user = new User(userId, tenantId, new Email("victima@example.com"), "TENANT_ADMIN", null, true,
                 new HashedPassword("enc:correcta"), OffsetDateTime.now());
         when(userRepository.findByEmail("victima@example.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("correcta", "enc:correcta")).thenReturn(true);

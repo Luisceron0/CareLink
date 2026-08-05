@@ -270,3 +270,62 @@ gap explícito en `docs/SRS.md` y `tasks/todo.md`, a la espera de decidir si se 
 antes de continuar a Sub-fase 3, o si Sub-fase 3+ tolera el mismo atajo de verificación
 un poco más.
 **Tags:** #alcance #identity #testing
+
+## [2026-08-05] — Un test suite en verde nunca ejercitó `SmtpEmailNotifier` de verdad; el registro de tenant estaba roto contra un `docker compose up` fresco
+**Contexto:** al construir FR-ID-02 (invitación de usuarios), el flujo reutiliza el
+mismo patrón de "generar token, enviarlo por email" que `RegisterTenantUseCase` ya usa
+para la verificación de email al registrar un tenant. Antes de construir sobre ese
+patrón, se decidió probarlo en vivo contra `docker compose up` para confirmar que
+funcionaba de verdad — la misma disciplina de "correr el sistema real, no confiar solo
+en tests en verde" ya aplicada el resto de la sesión.
+**Lo que se encontró:** el registro de un tenant NUEVO fallaba con
+`MailSendException: Connection refused` — `SmtpEmailNotifier` intenta una conexión SMTP
+real, `docker-compose.yml` nunca pasaba `SMTP_HOST`/`SMTP_PORT` al backend (caía al
+default de Spring, `localhost:1025`, que dentro del contenedor del backend es el propio
+backend, no un servidor de correo), y no existía ningún contenedor de correo en el
+compose. `.env.example` ya documentaba la intención ("apuntar a un catcher local,
+MailHog/Mailpit") pero nadie había agregado el contenedor.
+**Por qué ningún test lo detectó:** cada test que pasa por `RegisterTenantUseCase` con
+el contexto completo de Spring (`AuthControllerSecurityIT`) usa `@MockBean` sobre
+`EmailNotifier` — nunca ejercita `SmtpEmailNotifier` de verdad. Los tests unitarios
+(`RegisterTenantUseCaseTest`) usan un fake en memoria. Ningún test, en ningún nivel,
+levantaba un servidor SMTP real ni verificaba que la app pudiera conectar a uno. El
+`docker compose up` es la única capa que ejercita el bean real — y nadie lo había
+vuelto a correr desde cero (base de datos limpia, sin tenants ya registrados) desde que
+se agregó `MailHealthIndicator` deshabilitado (que enmascaró la ausencia de SMTP como
+"no hay nada que healthcheckear", no como "esto se rompe si alguien lo usa").
+**Corrección:** se agregó `axllent/mailpit` a `docker-compose.yml` (imagen liviana,
+API REST para leer los mensajes capturados — útil para verificar en vivo sin abrir un
+navegador) y se wireó `SMTP_HOST=mailpit`/`SMTP_PORT=1025` explícito en el entorno del
+backend. Nada sale de la red local de compose — consistente con §16.4 (sin
+integración SMTP viva). Reverificado: registro de tenant fresco → 201, Mailpit recibe
+el email real con el token de verificación.
+**Regla para el futuro:** un puerto con una sola implementación real (`EmailNotifier` →
+`SmtpEmailNotifier`, sin alternativa en este milestone) que TODOS los tests reemplazan
+por un doble es un puerto que nunca se ejercita de verdad en ningún nivel de test —
+solo `docker compose up` desde cero lo prueba. Cuando ese patrón se detecta, vale la
+pena levantar el stack completo y probar el flujo real ANTES de construir algo nuevo
+que dependa del mismo mecanismo, no después.
+**Tags:** #infraestructura #docker-compose #testing
+
+## [2026-08-05] — FR-ID-02: construido recién con confirmación explícita del usuario, no por iniciativa propia
+**Contexto:** al cerrar Sub-fase 2, se encontró que FR-ID-02 (invitación de usuarios
+con asignación de rol) nunca se había construido — ver la entrada anterior sobre el
+gap encontrado durante `ClinicalEncounterController`. Antes de construirlo, se le
+preguntó explícitamente al usuario cómo seguir (construirlo ahora, seguir con el atajo
+de SQL, o pausar a revisar el alcance primero) en vez de decidir unilateralmente,
+seguir la regla del proyecto de "si una tarea obliga a tocar algo fuera del alcance de
+la sub-fase activa, parar y preguntar antes de tocarlo".
+**Confirmado:** el usuario eligió "construir FR-ID-02 ahora". A partir de esa
+confirmación explícita se construyó el flujo completo (invitar, aceptar invitación,
+desactivar) — documentado en la entrada de Sub-fase 2 de `tasks/todo.md` y en
+`docs/SRS.md` §5.1.
+**Por qué vale la pena registrar esto como lección y no solo como una tarea más:** es
+un caso limpio del patrón que el usuario pidió seguir desde el primer mensaje de la
+sesión — nombrar la decisión de alcance no cubierta y esperar confirmación, en vez de
+resolverla en silencio — funcionando como se pretendía, sin fricción, con una sola
+pregunta bien encuadrada (tres opciones concretas, no abierta). Vale la pena seguir
+haciéndolo así cuando aparezca la próxima decisión de alcance no cubierta (candidato ya
+identificado: si Sub-fase 3+ necesita más roles gateados, la misma pregunta va a volver
+a aparecer).
+**Tags:** #alcance #proceso

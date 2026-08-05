@@ -233,6 +233,48 @@ provisioning path is used either way — provisioning mechanism, not the domain,
 `TENANT_ADMIN` invites users, assigns roles (§4) and `service_id`. Deactivation retains
 audit history permanently.
 
+> **Status: BUILT.** `POST /api/v1/users/invite` (`TENANT_ADMIN` only, tenant always
+> resolved server-side from the JWT, never a client-supplied parameter — same pattern
+> as `PatientController`/`ClinicalEncounterController`, AC-06). The invited user is
+> created with a random, unusable password that nobody — including the inviter — ever
+> sees; it only becomes usable once the invitee sets their own via
+> `POST /api/v1/auth/accept-invite` with the single-use token they received by email,
+> reusing the same hashed-token mechanism `VerifyEmailUseCase` already used for
+> self-registration. `service_id` is a nullable free-text column on `users` (V4
+> migration) — not a `Service` entity, §4 doesn't define one beyond naming examples
+> ("Urgencias", "Consulta Externa"); same minimal-schema call already made for
+> `diagnosis_cie10` in ClinicalEncounter. Deactivation (`POST /api/v1/users/{id}/deactivate`)
+> sets `active = false`; `users` has kept `ON DELETE RESTRICT` since V1 specifically so
+> a deactivated user's audit trail is never lost. `LoginUseCase` rejects a deactivated
+> account with the exact same exception and message as a wrong password — same
+> AC-06-style principle of not letting a distinguishable response confirm account
+> state to an unauthenticated caller.
+>
+> **Real bug found and fixed as part of building this, not a new design decision:**
+> tenant registration (FR-ID-01) itself was broken against a fresh `docker compose up`
+> — `SmtpEmailNotifier` unconditionally tries a real SMTP connection, and no mail
+> catcher container existed, so every registration failed with
+> `MailSendException: Connection refused`. `.env.example` already documented the
+> intent ("point at a local catcher, MailHog/Mailpit") but the container was never
+> added. Fixed by adding `axllent/mailpit` to `docker-compose.yml` and wiring
+> `SMTP_HOST=mailpit` for the backend service — nothing leaves the local compose
+> network, consistent with §16.4 (no live SMTP integration). Verified live: a fresh
+> registration now reaches Mailpit's REST API with the real verification email, and
+> the exact same mechanism is what carries invitation emails for FR-ID-02.
+>
+> **Known gaps, not built here:** self-deactivation isn't guarded — a lone
+> `TENANT_ADMIN` deactivating their own account would lock the tenant out of ever
+> inviting anyone again; not in FR-ID-02's spec text, not added unprompted. Tenant
+> registration and user invitation are not transactional across their steps (a mail
+> failure after the DB write leaves a usable tenant/user row behind); pre-existing in
+> `RegisterTenantUseCase`, inherited by `InviteUserUseCase`'s identical shape, not
+> introduced or fixed here. An uncaught exception without an explicit `catch` in the
+> controller (e.g. `TenantAlreadyExistsException`) surfaces as `403`, not the
+> semantically correct status — a pre-existing quirk of this app having no global
+> `@ExceptionHandler`, worked around locally in `UserManagementController`/
+> `AuthController` by catching the exceptions each new use case can throw, not fixed
+> at the root.
+
 #### FR-ID-03 — Authentication
 Email + password, Argon2id. JWT access token (RS256, 15 min or 8h — see ADR-004 for which
 value applies and why) + refresh token, HttpOnly cookie, rotated on use, revoked on
@@ -295,13 +337,14 @@ not hidden; the schema is shared.
 > FR-CLN-13's "if the operation fails, record result = ERROR" holding for a real
 > failure, not just the happy path.
 >
-> **Real gap found while verifying this over HTTP, not built here:** there is no way
-> to create a `PHYSICIAN` user through the API. FR-ID-02 ("`TENANT_ADMIN` invites
-> users, assigns roles") was never built — tenant registration only ever creates a
-> `TENANT_ADMIN`. The live verification above required manually promoting a test
-> user's role via direct SQL to reach a `PHYSICIAN` token; that is not something the
-> product can do. This blocks more than encounters — no role other than
-> `TENANT_ADMIN` is reachable at all today. Tracked in `tasks/todo.md`.
+> **Real gap found while verifying this over HTTP, since resolved:** at the time this
+> was first verified, there was no way to create a `PHYSICIAN` user through the API —
+> tenant registration only ever created a `TENANT_ADMIN`, and reaching a `PHYSICIAN`
+> token required manually promoting a test user's role via direct SQL. FR-ID-02
+> (§5.1) closed this: the live verification above has since been redone end-to-end
+> through the product itself — `POST /api/v1/users/invite` as the `TENANT_ADMIN`,
+> `POST /api/v1/auth/accept-invite` as the invited physician, ordinary login — with
+> no SQL shortcut anywhere in the path.
 >
 > **Deliberately not built:** structured prescriptions (Sub-fase 6), CIE-10 catalog
 > validation (the code is accepted as text, not checked against the WHO table), and the
@@ -734,7 +777,7 @@ the task-level breakdown; the sub-fases themselves are normative here:
 |---|---|---|---|
 | 0 | Repo hygiene: remove `api-gateway-identity`, purge `.db`, single SRS | — | Done, except the `test_identity.db` git-history purge, explicitly reserved for the author's own call |
 | 1 | `DemoModeGuard` + Audit Log (append-only, AOP-intercepted) | Fase 0 | Done |
-| 2 | Identity gaps closed + Patient + ClinicalEncounter (signed, immutable) | Fase 1 | Done except AC-06b (needs `service_id` on `User`); FR-ID-02 (user invitation / role assignment) found missing during live verification, tracked in `tasks/todo.md`, not yet scheduled |
+| 2 | Identity gaps closed + Patient + ClinicalEncounter (signed, immutable) | Fase 1 | Done except AC-06b (needs `service_id`-based *enforcement*, not just the column — see §5.1 FR-ID-02). FR-ID-02 (user invitation, role + `service_id` assignment, deactivation) built after being found missing during live verification of Sub-fase 2 |
 | 3 | Admissions + Triage | Fase 2 | Not started |
 | 4 | Health Diary (NANDA/NIC/NOC) + Knowledge Engine (k-anonymity) | Fase 2 | Not started |
 | 5 | Interconsultations (with per-request revocation check) | Fase 2, 4 | Not started |
@@ -964,9 +1007,12 @@ both at the repository level (`PatientLifecycleIT`) and over real HTTP against a
 compose stack: a second tenant's valid JWT reading the first tenant's patient got 403.
 A cross-tenant attempt and a nonexistent ID return the identical response (empty
 `Optional` → 403) — deliberately indistinguishable, so a 403 never confirms a resource
-exists in someone else's tenant. AC-06b needs `service_id` on `User`, which doesn't
-exist yet — next task, along with re-verifying AC-06 holds as more clinical endpoints
-are added (one endpoint passing doesn't mean the pattern is applied everywhere yet).
+exists in someone else's tenant. `service_id` now exists on `User` (FR-ID-02, §5.1),
+but AC-06b needs *enforcement* — every clinical endpoint checking the acting user's
+`service_id` against the resource's, the same way tenant isolation is checked today —
+which nothing does yet. Still open, along with re-verifying AC-06 holds as more
+clinical endpoints are added (one endpoint passing doesn't mean the pattern is applied
+everywhere yet).
 
 AC-07 — **Pass**. `GetPatientUseCase.execute` carries `@Auditable`; reading a patient
 produces exactly one `audit_log` row (`PATIENT_READ`, with `patient_id`) per read,

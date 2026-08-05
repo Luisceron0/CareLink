@@ -92,7 +92,10 @@ public class JwksAndRefreshIntegrationTest {
 
         class NoopSchemaProvisioner implements com.carelink.identity.domain.port.SchemaProvisioner { @Override public void provisionSchema(com.carelink.identity.domain.value.TenantSlug tenantSlug) {} }
 
-        class NoopEmailNotifier implements com.carelink.identity.domain.port.EmailNotifier { @Override public void sendVerificationEmail(String to, String token) {} }
+        class NoopEmailNotifier implements com.carelink.identity.domain.port.EmailNotifier {
+            @Override public void sendVerificationEmail(String to, String token) {}
+            @Override public void sendInvitationEmail(String to, String token, String role) {}
+        }
 
         class InMemoryVerificationTokenRepo implements com.carelink.identity.domain.port.VerificationTokenRepository {
             private java.util.Map<String, java.util.UUID> map = new java.util.HashMap<>();
@@ -112,7 +115,7 @@ public class JwksAndRefreshIntegrationTest {
 
         UUID userId = UUID.randomUUID();
         UUID tenantId = UUID.randomUUID();
-        com.carelink.identity.domain.User u = new com.carelink.identity.domain.User(userId, tenantId, new com.carelink.identity.domain.value.Email("u@example.com"), "TENANT_ADMIN", new com.carelink.identity.domain.value.HashedPassword(pwd.encode("secret")), OffsetDateTime.now());
+        com.carelink.identity.domain.User u = new com.carelink.identity.domain.User(userId, tenantId, new com.carelink.identity.domain.value.Email("u@example.com"), "TENANT_ADMIN", null, true, new com.carelink.identity.domain.value.HashedPassword(pwd.encode("secret")), OffsetDateTime.now());
         userRepo.save(u);
 
         StaticKeyProvider staticKeyProvider = new StaticKeyProvider();

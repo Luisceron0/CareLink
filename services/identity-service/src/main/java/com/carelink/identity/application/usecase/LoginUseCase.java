@@ -24,6 +24,15 @@ public class LoginUseCase {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("Invalid credentials"));
 
+        // Mismo mensaje y mismo tipo de excepción que credenciales inválidas —
+        // FR-ID-02 desactiva usuarios, no los borra, pero un intento de login no
+        // debe poder distinguir "contraseña incorrecta" de "esta cuenta fue
+        // desactivada" (mismo principio de AC-06: una respuesta indistinguible no
+        // confirma nada sobre el estado real de la cuenta).
+        if (!user.active()) {
+            throw new RuntimeException("Invalid credentials");
+        }
+
         if (!passwordEncoder.matches(rawPassword, user.password().value())) {
             throw new RuntimeException("Invalid credentials");
         }
