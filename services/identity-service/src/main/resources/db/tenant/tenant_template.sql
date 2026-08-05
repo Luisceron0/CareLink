@@ -75,8 +75,61 @@ CREATE TRIGGER audit_log_no_delete
 -- despliegue (env var), no de entrada de un usuario en runtime.
 GRANT SELECT, INSERT ON audit_log TO {{app_role}};
 
--- SELECT, INSERT nada más: `patients` sigue siendo el placeholder de arriba, no
--- la entidad Patient real (próximo paso de Sub-fase 2). UPDATE/DELETE se
--- definen junto con el modelo real, no antes — no hay todavía un caso de uso
--- que edite o borre un paciente para decidir esas reglas a ciegas.
+-- SELECT, INSERT nada más — todavía no hay un caso de uso que edite o borre un
+-- paciente para decidir esas reglas a ciegas (UPDATE/DELETE se agregan cuando
+-- exista uno, no antes).
 GRANT SELECT, INSERT ON patients TO {{app_role}};
+
+-- ClinicalEncounter (FR-CLN-02). Igual criterio de cifrado que patients:
+-- chief_complaint/exam_findings/treatment_plan/follow_up son notas clínicas de
+-- texto libre — PHI, cifradas. diagnosis_cie10 es un código estructurado, no
+-- texto libre, y el Motor de Conocimiento (Sub-fase 4) necesita poder agruparlo
+-- sin descifrar cada fila — mismo criterio que document_type/sex/blood_type en
+-- patients: categórico, no identifica por sí solo.
+--
+-- Inmutabilidad tras la firma, en DOS capas — mismo patrón que audit_log:
+--   1. El trigger de abajo bloquea CUALQUIER UPDATE sobre una fila ya firmada
+--      (OLD.signed_at IS NOT NULL), para cualquier rol, incluido el admin. Esta
+--      es la garantía que Ley 527/1999 y Res. 1995/1999 piden — a nivel de base,
+--      no de lógica de aplicación que alguien con acceso directo podría saltear.
+--   2. La aplicación nunca intenta ese UPDATE en el camino normal: firmar es un
+--      UPDATE separado con `WHERE signed_at IS NULL` (JdbcClinicalEncounterRepository),
+--      así que un intento de re-firmar no afecta filas en vez de disparar el
+--      trigger — mismo resultado (rechazado), disparado por el guard correcto
+--      según el caso.
+-- El código de error P0409 (elegido, no un estándar de Postgres) es lo que el
+-- adaptador de Java usa para distinguir "está firmado" de cualquier otro fallo
+-- de base de datos y traducirlo a 409, no a un 500 genérico.
+CREATE TABLE clinical_encounters (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    patient_id         UUID        NOT NULL,
+    physician_user_id  UUID        NOT NULL,
+    chief_complaint    TEXT        NOT NULL, -- cifrado
+    exam_findings      TEXT,                 -- cifrado
+    diagnosis_cie10    TEXT,
+    treatment_plan     TEXT,                 -- cifrado
+    follow_up          TEXT,                 -- cifrado
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    signed_at          TIMESTAMPTZ,
+    signed_by_user_id  UUID
+);
+
+CREATE INDEX idx_clinical_encounters_patient_id ON clinical_encounters (patient_id);
+
+CREATE OR REPLACE FUNCTION clinical_encounter_block_signed_mutation()
+RETURNS TRIGGER AS $encounter_guard$
+BEGIN
+    IF OLD.signed_at IS NOT NULL THEN
+        RAISE EXCEPTION 'clinical_encounter % ya está firmado, es inmutable (Ley 527/1999, Res. 1995/1999, FR-CLN-02)', OLD.id
+            USING ERRCODE = 'P0409';
+    END IF;
+    RETURN NEW;
+END;
+$encounter_guard$ LANGUAGE plpgsql;
+
+CREATE TRIGGER clinical_encounter_no_update_when_signed
+    BEFORE UPDATE ON clinical_encounters
+    FOR EACH ROW EXECUTE FUNCTION clinical_encounter_block_signed_mutation();
+
+-- Sin DELETE: un encounter, firmado o no, no se borra — es historia clínica.
+GRANT SELECT, INSERT, UPDATE ON clinical_encounters TO {{app_role}};

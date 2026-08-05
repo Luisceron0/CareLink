@@ -285,7 +285,29 @@ not hidden; the schema is shared.
 
 ### 5.4 Clinical Encounter, Admissions and Triage
 
-> **Status: TO BE BUILT — Milestone 1, Sub-fase 2 (Encounter) and Sub-fase 3 (Triage).**
+> **Status: BUILT (Encounter, core fields) — Sub-fase 3 (Triage) not started.**
+> `ClinicalEncounter`, `POST/PUT/GET /api/v1/encounters`, `POST /api/v1/encounters/{id}/sign`.
+> AC-08 verified live against `docker compose`: sign → 200, an attempted edit
+> afterward → 409 with a clear body (not a generic 500), the raw DB row showing
+> `signed_at` set and the clinical notes as ciphertext, `diagnosis_cie10` still
+> readable (needed later by the Knowledge Engine, Sub-fase 4, without decrypting every
+> row), and `audit_log` carrying the rejected update attempt with `result = ERROR` —
+> FR-CLN-13's "if the operation fails, record result = ERROR" holding for a real
+> failure, not just the happy path.
+>
+> **Real gap found while verifying this over HTTP, not built here:** there is no way
+> to create a `PHYSICIAN` user through the API. FR-ID-02 ("`TENANT_ADMIN` invites
+> users, assigns roles") was never built — tenant registration only ever creates a
+> `TENANT_ADMIN`. The live verification above required manually promoting a test
+> user's role via direct SQL to reach a `PHYSICIAN` token; that is not something the
+> product can do. This blocks more than encounters — no role other than
+> `TENANT_ADMIN` is reachable at all today. Tracked in `tasks/todo.md`.
+>
+> **Deliberately not built:** structured prescriptions (Sub-fase 6), CIE-10 catalog
+> validation (the code is accepted as text, not checked against the WHO table), and the
+> "amendments are new versioned entries" mechanism FR-CLN-02 describes — blocking
+> mutation after signing already demonstrates the immutability guarantee AC-08 asks
+> for; the versioned-amendment workflow on top of that is separate machinery.
 
 #### FR-CLN-02 — Clinical Encounter
 A `PHYSICIAN` creates an encounter: chief complaint, exam, diagnosis (CIE-10), treatment
@@ -954,7 +976,19 @@ evaluates SpEL against the method's *arguments*, and the ID is generated inside 
 method, after the join point is captured; extending the aspect to also read the return
 value is a real gap, not fixed here.
 
-AC-08 remains unbuilt (rest of Sub-fase 2).
+AC-08 — **Pass**. `ClinicalEncounterRepository.update`/`.sign` translate a rejection
+from the DB-level trigger (custom SQLSTATE `P0409`, `tenant_template.sql`) into
+`EncounterAlreadySignedException`, which the controller maps to 409. Verified at the
+repository level (`ClinicalEncounterLifecycleIT`, including the contrapositive — an
+unsigned encounter edits successfully, so the test proves something specific about
+being signed, not just that updates always fail) and live over HTTP: sign → 200, edit
+after signing → 409, the raw row unchanged. Two independent layers, same shape as
+AC-10's: the trigger rejects the mutation regardless of role (including admin), the
+application-level `WHERE signed_at IS NULL` guard on `sign` means a re-sign attempt
+never even reaches the trigger.
+
+This closes every AC scheduled for Sub-fase 2 (§16.2) except AC-06b, which needs
+`service_id` on `User` — not built, tracked separately.
 | AC-11 | No SQLi, header vector included | `sqlmap --level 3`, report committed |
 | AC-13 | Interconsultation access denied after closure | Integration test — grant, close, re-request, expect 403 |
 | AC-14 | Knowledge Engine suppresses results when k<5 | Integration test with seeded near-unique combination |
