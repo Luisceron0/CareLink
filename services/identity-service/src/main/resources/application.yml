@@ -3,9 +3,14 @@ spring:
     name: carelink-identity
 
   datasource:
+    # Rol restringido (AC-10). Este es el que usa JPA/Hibernate y el resto del
+    # tráfico normal de la aplicación — nunca el rol administrador. `carelink_app`
+    # no tiene grant de DELETE ni UPDATE sobre `audit_log` y no puede crear ni
+    # alterar tablas; lo provisiona un script de inicialización de Postgres, no
+    # esta aplicación (docker/postgres-init/01-create-app-role.sh).
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/carelink}
-    username: ${DATABASE_USER:carelink}
-    password: ${DATABASE_PASSWORD:}
+    username: ${CARELINK_APP_DB_USER:carelink_app}
+    password: ${CARELINK_APP_DB_PASSWORD:}
     driver-class-name: org.postgresql.Driver
 
   flyway:
@@ -14,6 +19,29 @@ spring:
     # El esquema es de Flyway, no de Hibernate. `validate-on-migrate` deja que un
     # archivo de migración ya aplicado no se pueda editar en silencio.
     validate-on-migrate: true
+    # Flyway corre con el rol ADMINISTRADOR sobre la MISMA base física que
+    # spring.datasource.url — dos roles, una URL. `url` va explícita a propósito:
+    # el fallback automático de Spring Boot ("si spring.flyway.url no está,
+    # heredar la de spring.datasource") depende de que exista el bean interno
+    # `DataSourceProperties`, y ese bean deja de crearse en cuanto se define un
+    # DataSource propio (ver DataSourceConfig). Explicitar la URL acá evita
+    # depender de ese mecanismo implícito — es el mismo criterio que llevó a usar
+    # dos roles en primer lugar: preferir lo explícito sobre lo que "debería"
+    # funcionar solo.
+    #
+    # Es deliberado que sea un rol distinto al de la aplicación: si el rol de
+    # aplicación pudiera crear sus propias tablas, sería dueño de ellas, y en
+    # PostgreSQL el dueño de una tabla siempre puede volver a otorgarse cualquier
+    # permiso que se le revoque. AC-10 solo significa algo si quien puede hacer
+    # DDL y quien corre el tráfico normal son roles distintos.
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/carelink}
+    user: ${POSTGRES_USER:carelink}
+    password: ${POSTGRES_PASSWORD:}
+    # V3__grant_app_role.sql referencia ${app_db_user} — mismo valor que
+    # spring.datasource.username arriba, una sola fuente de verdad para "cuál es
+    # el rol al que hay que otorgarle permisos".
+    placeholders:
+      app_db_user: ${CARELINK_APP_DB_USER:carelink_app}
 
   jpa:
     # `none`, deliberadamente: el esquema lo versiona Flyway. Hibernate no crea ni
@@ -77,3 +105,13 @@ carelink:
   # funcionar. Un default permisivo convierte el control en un adorno.
   demo-mode: ${DEMO_MODE:false}
   app-env: ${APP_ENV:local}
+
+  # DataSource administrador — el mismo rol y credenciales que usa Flyway arriba,
+  # expuesto también como bean para operaciones que la aplicación necesita hacer
+  # con privilegios de DDL: hoy, provisionar el schema de un tenant nuevo
+  # (PostgresSchemaProvisioner). No lo usa JPA/Hibernate ni ningún repositorio de
+  # dominio — esos usan el DataSource primario, restringido.
+  admin-datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/carelink}
+    username: ${POSTGRES_USER:carelink}
+    password: ${POSTGRES_PASSWORD:}

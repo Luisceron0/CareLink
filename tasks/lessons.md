@@ -134,3 +134,60 @@ documento que dice "Propuesto" se lee como vigente. El estado de un ADR es parte
 contenido, no metadata decorativa: cuando una decisión nueva revierte una vieja, cerrar
 la vieja es parte de tomar la nueva, no una tarea de limpieza posterior.
 **Tags:** #arquitectura #deuda-técnica
+
+## [2026-08-05] — `@ConditionalOnMissingBean` es por tipo: un bean propio apaga la autoconfiguración de "el otro" en silencio (tres veces seguidas, en el mismo cambio)
+**Contexto:** Sub-fase 1 necesitaba dos roles de base de datos — uno administrador para
+Flyway/`PostgresSchemaProvisioner`, uno restringido (`carelink_app`) para JPA y el resto
+del tráfico, condición sin la cual AC-10 no es verificable (con un solo rol superusuario,
+`REVOKE` no hace nada). La primera versión agregó un `@Bean DataSource adminDataSource()`
+manual y asumió que Spring Boot seguiría autoconfigurando el primario a partir de
+`spring.datasource.*`, como si el bean nuevo fuera un simple agregado.
+**Error cometido, repetido tres veces sin que las primeras dos correcciones lo generalizaran:**
+1. `DataSourceAutoConfiguration` crea su `DataSource` bajo
+   `@ConditionalOnMissingBean(DataSource.class)` — una condición por TIPO, no por nombre.
+   En cuanto existía cualquier bean `DataSource` en el contexto (el administrador), Spring
+   Boot se abstenía de crear el primario. Resultado: JPA y todo el tráfico de la
+   aplicación corrían con privilegios de superusuario.
+2. La corrección obvia —`@ConfigurationProperties(prefix="spring.datasource")` sobre
+   `DataSourceBuilder.create().build()`— bindea por reflexión sobre los setters del
+   objeto ya construido, y `HikariDataSource` no tiene `setUrl(...)`, tiene
+   `setJdbcUrl(...)`. La URL nunca llegaba al pool, y recién se notaba porque Hibernate
+   fallaba con "Unable to determine Dialect without JDBC metadata" — un error que no
+   menciona la palabra "rol" ni "URL" en ningún lado obvio.
+3. Corregido eso con el patrón real de Spring Boot (bindear sobre `DataSourceProperties`,
+   que sí tiene un campo `url`, y usar `initializeDataSourceBuilder()`), el MISMO patrón
+   volvió a pasar un nivel más arriba: mi propio bean `adminJdbcTemplate` (tipo
+   `JdbcTemplate`, que implementa `JdbcOperations`) hizo que
+   `JdbcTemplateAutoConfiguration` — también `@ConditionalOnMissingBean(JdbcOperations.class)`
+   — se abstuviera de crear el `jdbcTemplate` autoconfigurado. El único `JdbcTemplate` del
+   contexto volvía a ser el administrador.
+**Cómo se detectó cada capa:** NINGUNA la encontró un test hasta que se escribió uno a
+propósito. `docker compose up` + `pg_stat_activity` mostró las 11 conexiones activas bajo
+`usename=carelink` (admin) en vez de `carelink_app` — eso destapó la capa 1. Corregir esa
+reveló la 2 (Hibernate fallando al arrancar). Corregir esa reveló la 3, ya en un test
+nuevo (`ApplicationContextLoadsTest.primaryDataSourceConnectsAsRestrictedRoleNotAdmin`,
+escrito específicamente para volver a comprobar esto) que seguía fallando con
+`current_user = "postgres"` en vez de `carelink_app` — hizo falta un test diagnóstico
+temporal (`ctx.getBeanNamesForType(...)`) para ver que solo existía UN bean `JdbcTemplate`
+en todo el contexto.
+**Consecuencia si no se hubiera destapado:** AC-10 —la garantía de que el rol de
+aplicación no puede borrar `audit_log`— habría estado rota en el sistema real mientras
+`AuditLogAppendOnlyIT` seguía en verde, porque ese test construye su `JdbcTemplate` a
+mano con credenciales explícitas y nunca pasa por el cableado real de Spring. Exactamente
+el patrón de toda esta sesión: cobertura que parece existir y no prueba lo que hace falta.
+**Corrección final:** `DataSourceConfig` define los DOS `DataSource` Y los DOS
+`JdbcTemplate` explícitamente — nunca uno manual y el otro "que lo arme Spring". Se agregó
+`ApplicationContextLoadsTest.primaryDataSourceConnectsAsRestrictedRoleNotAdmin`, que
+verifica con `SELECT current_user` contra el bean primario TAL CUAL lo arma Spring —no
+uno armado a mano en el test— que efectivamente es `carelink_app`.
+**Regla para el futuro:** en cuanto se define un bean propio de un tipo que Spring Boot
+autoconfigura condicionalmente (`DataSource`, `JdbcTemplate`, `TransactionManager`,
+cualquiera con `@ConditionalOnMissingBean` en su autoconfiguración), hay que asumir la
+propiedad de TODOS los beans de ese tipo en el contexto, no solo el nuevo. "Dejo que
+Spring siga autoconfigurando el otro" es la suposición que se rompe en silencio — sin
+excepción, sin log, solo un bean que termina apuntando a donde no debía. Y la única forma
+confiable de comprobar que el bean primario "tal cual lo arma Spring" hace lo que se
+espera es ejercitarlo con una aserción de runtime (`SELECT current_user`, no una lectura
+del código) — un test unitario que construye sus propios colaboradores no puede detectar
+un problema de cableado que solo existe cuando Spring arma el grafo de beans completo.
+**Tags:** #arquitectura #seguridad #testing

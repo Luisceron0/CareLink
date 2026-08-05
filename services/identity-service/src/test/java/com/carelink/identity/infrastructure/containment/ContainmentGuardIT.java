@@ -26,31 +26,30 @@ import static org.assertj.core.api.Assertions.fail;
 class ContainmentGuardIT {
 
     /**
-     * Arranca la aplicación completa contra la base indicada.
+     * Arranca la aplicación completa contra una base de test nueva, con los dos roles
+     * (admin para Flyway, {@code carelink_app} restringido para el resto) ya
+     * provisionados por {@link EmbeddedPostgresSupport#appArgs}.
      *
-     * <p>La configuración va como argumentos de línea de comandos ({@code --clave=valor})
-     * y no por {@code SpringApplicationBuilder.properties(...)}: ese método registra
-     * <em>default properties</em>, la fuente de menor precedencia de todas, así que
-     * {@code application.yml} las pisa y la aplicación termina conectándose a la base
-     * por defecto en lugar de a la del test.
-     *
-     * <p>Se arranca como aplicación web con {@code server.port=0} —puerto efímero— y no
-     * con {@code WebApplicationType.NONE}, porque {@code SecurityConfig} declara un
+     * <p>Se arranca como aplicación web con {@code server.port=0} —puerto efímero— y
+     * no con {@code WebApplicationType.NONE}, porque {@code SecurityConfig} declara un
      * {@code SecurityFilterChain} que necesita {@code HttpSecurity}, un bean que solo
      * existe en un contexto web. Sin servidor, el contexto falla por una razón que no
      * tiene nada que ver con la contención, y el test pasaría o fallaría por el motivo
      * equivocado.
+     *
+     * <p>La configuración extra va como argumentos de línea de comandos
+     * ({@code --clave=valor}), no por {@code SpringApplicationBuilder.properties(...)}:
+     * ese método registra <em>default properties</em>, la fuente de menor precedencia
+     * de todas, así que {@code application.yml} las pisa y el test terminaría
+     * verificando el comportamiento por defecto en lugar del configurado.
      */
-    private ConfigurableApplicationContext run(String jdbcUrl, String... properties) {
-        // El prefijo `--` no es cosmético: SpringApplication solo interpreta como
-        // propiedad los argumentos que lo llevan. Sin él, "carelink.demo-mode=false"
-        // viaja como argumento suelto, se ignora, y el test verificaría el
-        // comportamiento por defecto creyendo que verifica el configurado.
-        String[] args = new String[properties.length + 2];
-        args[0] = "--spring.datasource.url=" + jdbcUrl;
-        args[1] = "--server.port=0";
-        for (int i = 0; i < properties.length; i++) {
-            args[i + 2] = "--" + properties[i];
+    private ConfigurableApplicationContext run(String dbNamePrefix, String... extraProperties) {
+        String[] base = EmbeddedPostgresSupport.appArgs(dbNamePrefix);
+        String[] args = new String[base.length + extraProperties.length + 1];
+        System.arraycopy(base, 0, args, 0, base.length);
+        args[base.length] = "--server.port=0";
+        for (int i = 0; i < extraProperties.length; i++) {
+            args[base.length + 1 + i] = "--" + extraProperties[i];
         }
 
         return new SpringApplicationBuilder(Application.class).run(args);
@@ -82,47 +81,39 @@ class ContainmentGuardIT {
     @Test
     @DisplayName("AC-01 — el arranque falla si DEMO_MODE no es true")
     void bootFailsWithoutDemoMode() {
-        String url = EmbeddedPostgresSupport.createDatabase("ac01");
-
         assertFailsContainment(
-                () -> run(url, "carelink.demo-mode=false", "carelink.app-env=test"),
+                () -> run("ac01", "carelink.demo-mode=false", "carelink.app-env=test"),
                 "DEMO_MODE no es true");
     }
 
     @Test
     @DisplayName("AC-01 — el arranque falla también si DEMO_MODE simplemente no está definido")
     void bootFailsWhenDemoModeIsAbsent() {
-        String url = EmbeddedPostgresSupport.createDatabase("ac01absent");
-
         // Sin `carelink.demo-mode`: el default de application.yml es false, a propósito.
         // Un default permisivo haría que "olvidarse de configurar" sea el camino feliz.
         assertFailsContainment(
-                () -> run(url, "carelink.app-env=test"),
+                () -> run("ac01absent", "carelink.app-env=test"),
                 "DEMO_MODE no es true");
     }
 
     @Test
     @DisplayName("APP_ENV de producción hace fallar el arranque aunque DEMO_MODE sea true")
     void bootFailsOnProductionEnvironment() {
-        String url = EmbeddedPostgresSupport.createDatabase("acenv");
-
         assertFailsContainment(
-                () -> run(url, "carelink.demo-mode=true", "carelink.app-env=production"),
+                () -> run("acenv", "carelink.demo-mode=true", "carelink.app-env=production"),
                 "entorno de producción");
     }
 
     @Test
     @DisplayName("AC-02 — el arranque falla contra una base sin el sello SYNTHETIC_DATA_ONLY")
     void bootFailsAgainstUnstampedDatabase() {
-        String url = EmbeddedPostgresSupport.createDatabase("ac02");
-
         // `flyway.target=1` aplica la línea base de Identity pero NO la V2 que inserta el
         // sello. Resultado: una base con esquema válido y sin sello — exactamente la
         // forma peligrosa, porque "las tablas están, arrancá tranquilo" es justo la
         // conclusión equivocada. Que las tablas existan no dice nada sobre qué datos
         // tienen adentro.
         assertFailsContainment(
-                () -> run(url,
+                () -> run("ac02",
                         "carelink.demo-mode=true",
                         "carelink.app-env=test",
                         "spring.flyway.target=1"),
@@ -132,12 +123,10 @@ class ContainmentGuardIT {
     @Test
     @DisplayName("Con las tres condiciones satisfechas, la aplicación arranca")
     void bootSucceedsWhenContained() {
-        String url = EmbeddedPostgresSupport.createDatabase("acok");
-
         // El contrapeso de los tests anteriores: sin esto, un guard que rechazara
         // absolutamente todo también los pasaría.
         try (ConfigurableApplicationContext ctx =
-                     run(url, "carelink.demo-mode=true", "carelink.app-env=test")) {
+                     run("acok", "carelink.demo-mode=true", "carelink.app-env=test")) {
             assertThat(ctx.isRunning()).isTrue();
             assertThat(ctx.getBean(DemoModeGuard.class)).isNotNull();
         }
