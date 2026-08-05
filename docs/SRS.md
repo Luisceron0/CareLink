@@ -456,6 +456,19 @@ mechanism). Known debt: key material in environment variable rather than a KMS i
 single point of failure — documented, not blocking for this milestone (inherited from
 ClinicTrack ADR-001's honest framing of the same trade-off).
 
+> **Status: BUILT.** `AesGcmEncryptionService` — AC-09 passes (`PhiColumnCannotBeReadAsPlaintextIT`,
+> against real PostgreSQL: app-role INSERT of an already-encrypted value, direct SELECT
+> confirms it isn't plaintext, `decrypt` confirms it's still the right value).
+>
+> **How "per-tenant key" is actually implemented — a decision this section didn't fully
+> specify, made explicit here:** there is no per-tenant key *storage* mechanism (no
+> per-tenant Vault path). `CLINIC_ENCRYPTION_KEY` is one master key; each tenant's
+> encryption key is *derived* from it via `HMAC-SHA256(master, "carelink-phi:" +
+> tenantSlug)`. This satisfies the actual security property this section cares about —
+> tenants have cryptographically distinct keys, so a leaked derived key doesn't expose
+> another tenant's data — without inventing a second secrets-management surface for a
+> single milestone. Revisit if a future milestone adds real per-tenant secret storage.
+
 ### 8.4 Untrusted Input — HTTP Headers and Dynamic Identifiers (CWE-89-H)
 
 Unchanged from CareLink v2.0 §8.4 — six rules on headers as untrusted input, prepared
@@ -891,8 +904,19 @@ drift, per the ADR-010 lesson) and quoting the resulting identifier
 halves: a hyphenated slug (`clinica-la-esperanza`) now provisions correctly — it used
 to fail with a raw SQL syntax error, found while testing Sub-fase 1 — and a malicious
 string cannot reach `provisionSchema` at all, because the port's type doesn't accept a
-bare `String` anymore. AC-06, AC-06b, AC-08, AC-09 remain unbuilt (rest of Sub-fase 2);
-AC-07 waits on a real PHI read to test against (Sub-fase 2 onward).
+bare `String` anymore.
+
+AC-09 — **Pass**. `AesGcmEncryptionService` + `PhiColumnCannotBeReadAsPlaintextIT`
+against real PostgreSQL: the app role inserts an already-encrypted value into
+`patients.full_name`, a direct `SELECT` confirms it is neither the plaintext nor
+contains it, and `decrypt(...)` confirms the round trip. Seven additional unit tests
+(`AesGcmEncryptionServiceTest`) cover the algorithm in isolation — fresh IV per
+operation, per-tenant key derivation (a tenant's ciphertext doesn't decrypt under
+another tenant's slug), and GCM authentication (a tampered value fails to decrypt
+instead of silently returning garbage).
+
+AC-06, AC-06b, AC-08 remain unbuilt (rest of Sub-fase 2); AC-07 waits on a real PHI
+read to test against (Sub-fase 2 onward).
 | AC-11 | No SQLi, header vector included | `sqlmap --level 3`, report committed |
 | AC-13 | Interconsultation access denied after closure | Integration test — grant, close, re-request, expect 403 |
 | AC-14 | Knowledge Engine suppresses results when k<5 | Integration test with seeded near-unique combination |

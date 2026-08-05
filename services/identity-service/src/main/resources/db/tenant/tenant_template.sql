@@ -64,3 +64,9 @@ CREATE TRIGGER audit_log_no_delete
 -- duplicado en cada lugar que lo necesita. El valor viene de configuración de
 -- despliegue (env var), no de entrada de un usuario en runtime.
 GRANT SELECT, INSERT ON audit_log TO {{app_role}};
+
+-- SELECT, INSERT nada más: `patients` sigue siendo el placeholder de arriba, no
+-- la entidad Patient real (próximo paso de Sub-fase 2). UPDATE/DELETE se
+-- definen junto con el modelo real, no antes — no hay todavía un caso de uso
+-- que edite o borre un paciente para decidir esas reglas a ciegas.
+GRANT SELECT, INSERT ON patients TO {{app_role}};

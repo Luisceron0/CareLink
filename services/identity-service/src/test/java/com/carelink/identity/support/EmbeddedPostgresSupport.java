@@ -42,6 +42,14 @@ public final class EmbeddedPostgresSupport {
     public static final String ADMIN_USER = "postgres";
     public static final String ADMIN_PASSWORD = "postgres";
 
+    /**
+     * 32 bytes aleatorios fijos en base64 — no es un secreto real, es un valor
+     * reproducible para que los tests que arrancan el contexto completo (que ahora
+     * incluye {@code AesGcmEncryptionService}, que falla al construirse sin esto)
+     * tengan una CLINIC_ENCRYPTION_KEY válida sin depender de una variable de entorno.
+     */
+    public static final String TEST_CLINIC_ENCRYPTION_KEY = "7ZZkbEM/cUyrYgDgULdxHbp9Vxiu0CQ5Lj1FJ6cpn60=";
+
     private static volatile EmbeddedPostgres instance;
 
     private EmbeddedPostgresSupport() {}
@@ -110,6 +118,7 @@ public final class EmbeddedPostgresSupport {
         registry.add("carelink.admin-datasource.url", () -> url);
         registry.add("carelink.admin-datasource.username", () -> ADMIN_USER);
         registry.add("carelink.admin-datasource.password", () -> ADMIN_PASSWORD);
+        registry.add("carelink.clinic-encryption-key", () -> TEST_CLINIC_ENCRYPTION_KEY);
     }
 
     /** Los mismos pares clave=valor que {@link #registerDynamicProperties}, como argumentos {@code --}. */
@@ -125,6 +134,7 @@ public final class EmbeddedPostgresSupport {
                 "--carelink.admin-datasource.url=" + url,
                 "--carelink.admin-datasource.username=" + ADMIN_USER,
                 "--carelink.admin-datasource.password=" + ADMIN_PASSWORD,
+                "--carelink.clinic-encryption-key=" + TEST_CLINIC_ENCRYPTION_KEY,
         };
     }
 

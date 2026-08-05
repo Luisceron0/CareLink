@@ -106,6 +106,10 @@ carelink:
   demo-mode: ${DEMO_MODE:false}
   app-env: ${APP_ENV:local}
 
+  # Cifrado de PHI (AES-256-GCM, ADR-003, §8.3). Sin default: si falta, el arranque
+  # falla al construir AesGcmEncryptionService en vez de cifrar con una clave vacía.
+  clinic-encryption-key: ${CLINIC_ENCRYPTION_KEY:}
+
   # DataSource administrador — el mismo rol y credenciales que usa Flyway arriba,
   # expuesto también como bean para operaciones que la aplicación necesita hacer
   # con privilegios de DDL: hoy, provisionar el schema de un tenant nuevo
