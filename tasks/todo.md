@@ -230,9 +230,33 @@ construir en 8 frentes a la vez.
       y que un valor alterado falla la verificación GCM en vez de decodificar a basura
       silenciosamente. De paso: `tenant_template.sql` no otorgaba ningún grant sobre
       `patients` — solo `audit_log` lo tenía — agregado SELECT/INSERT para `{{app_role}}`.
-- [ ] `ClinicalEncounter` con firma (soft signature), inmutable a nivel DB tras firmar —
+- [x] `ClinicalEncounter` con firma (soft signature), inmutable a nivel DB tras firmar —
       FR-CLN-02
-- [ ] Test: PUT sobre encounter firmado → 409 — AC-08
+      Dos capas independientes, mismo patrón que `audit_log` (AC-10): trigger de
+      Postgres que rechaza cualquier UPDATE sobre una fila con `signed_at` no nulo para
+      CUALQUIER rol (SQLSTATE custom `P0409`, no una validación de aplicación
+      salteable con acceso directo a la base), y `sign()` usa
+      `WHERE signed_at IS NULL` para que re-firmar afecte 0 filas sin necesitar que el
+      trigger intervenga en ese camino. `diagnosis_cie10` se guarda en texto plano a
+      propósito (código categórico, lo necesita el futuro Motor de Conocimiento sin
+      descifrar); el resto de los campos clínicos se cifra con `AesGcmEncryptionService`
+      (AC-09). Mismo patrón de aislamiento por tenant y de "el actor sale del JWT, nunca
+      del body" que `PatientController`.
+      **Fix de compilación encontrado:** `org.postgresql:postgresql` tiene scope
+      `runtime` en el pom — `org.postgresql.util.PSQLException` no está disponible en
+      compilación en ningún otro punto del código. Se usa
+      `java.sql.SQLException.getSQLState()` (API JDBC estándar) en vez de la clase del
+      driver. Detalle en `tasks/lessons.md`, 2026-08-05.
+- [x] Test: PUT sobre encounter firmado → 409 — AC-08
+      `ClinicalEncounterLifecycleIT`: contrapeso explícito antes de firmar (un encounter
+      SIN firmar se edita sin problema, para que el test de "firmado rechaza" pruebe
+      algo específico sobre el estado firmado, no que las ediciones siempre fallen);
+      edición tras firma → `EncounterAlreadySignedException` → 409 con body claro;
+      re-firmar → misma excepción; contenido no mutado tras el intento rechazado.
+      Verificado además por HTTP real contra `docker compose up`: POST → PUT → POST
+      sign → 200, PUT tras firma → 409, fila cruda con `signed_at` seteado y notas como
+      ciphertext, `audit_log` con el intento rechazado (`result = ERROR`). `mvn verify`
+      completo (unit + integration vía Failsafe) en verde.
 - [x] Test: lectura cross-tenant → 403 — AC-06 (para `/api/v1/patients`, el único
       endpoint clínico que existe hasta ahora)
       No es una comparación en runtime "¿el tenant pedido es el mío?" — no existe un
@@ -243,15 +267,36 @@ construir en 8 frentes a la vez.
       existe en el tenant de otro. Verificado en `PatientLifecycleIT` y por HTTP real
       contra `docker compose up` (dos tenants, un JWT cada uno, el segundo intenta leer
       el paciente del primero → 403).
-- [ ] Autorización cross-tenant y cross-`service_id` en todo endpoint clínico
-      Sigue abierto: el patrón de AC-06 (tenant derivado del JWT, nunca de un parámetro)
-      queda establecido con Patient, pero "en TODO endpoint clínico" recién se puede
-      cerrar cuando haya más de un endpoint para reverificar contra él.
+- [x] Autorización cross-tenant en todo endpoint clínico existente
+      El patrón de AC-06 (tenant derivado de `AuthenticatedPrincipal.tenantId()` vía
+      `TenantRepository.findById`, nunca de un parámetro) ahora se reverificó en dos
+      endpoints independientes — `PatientController` y `ClinicalEncounterController` —
+      con la misma implementación (`resolveTenantSlug`). La parte de
+      cross-`service_id` queda explícitamente fuera de este ítem — ver AC-06b abajo,
+      que sigue abierto porque `service_id` en `User` no existe.
 - [ ] Test: lectura cross-service dentro del mismo tenant → 403 — AC-06b (cobertura 100%
       en este path)
       Requiere agregar `service_id` a `User` (no existe todavía — FR-ID-02 lo pide,
       nunca se construyó) + un migration V4 + el flujo de invitación de usuarios
       asignando `service_id`. Más grande que un ítem de checklist; es su propia tarea.
+
+### Descubierto durante la Sub-fase 2 (no estaba en el plan original)
+- [ ] **FR-ID-02 no existe: no hay ningún flujo para crear un usuario con rol distinto
+      de `TENANT_ADMIN`.** Encontrado al intentar obtener un JWT con rol `PHYSICIAN`
+      para verificar `ClinicalEncounterController` contra `docker compose up` — el
+      registro de tenant solo crea un `TENANT_ADMIN`, no hay invitación ni asignación de
+      rol. Se promovió un usuario de prueba a `PHYSICIAN` con `UPDATE users SET role=...`
+      directo sobre la base únicamente para poder hacer esa verificación puntual — no es
+      algo que el producto en sí pueda hacer hoy, y no se trató como "arreglado" por
+      hacerlo una vez a mano. Documentado en `docs/SRS.md` (§5.4).
+      **Por qué importa más allá de Sub-fase 2:** las Sub-fases 3–6 tienen endpoints
+      gateados por rol (`NURSE`, `SPECIALIST`, `LAB_TECH`, `PHARMACIST`, `ADMISSIONS`).
+      Sin un flujo real de asignación de rol, esos endpoints no se pueden
+      live-verificar contra `docker compose up` con el mismo rigor que Patient y
+      ClinicalEncounter — solo con el mismo atajo de SQL directo, que no prueba nada
+      sobre el producto real. Construir el flujo de invitación no estaba en el alcance
+      de ningún ítem de Sub-fase 2 o 3 del plan original — que quede pendiente de
+      confirmación explícita antes de ampliarlo, en vez de resolverlo en silencio.
 
 ## Sub-fase 3: Admissions + Triage
 - [ ] `Admission` entity + clasificación Triage Manchester (prioridad 1–5) — FR-CLN-03
