@@ -37,6 +37,25 @@ services:
       timeout: 5s
       retries: 10
 
+  mailpit:
+    # Catcher SMTP local (§16.4: sin integración SMTP viva en este milestone —
+    # esto no envía nada afuera de la red de docker compose, solo lo recibe y lo
+    # muestra). FR-ID-01 y FR-ID-02 llaman a EmailNotifier de verdad (registro de
+    # tenant, invitación de usuario); sin algo escuchando en SMTP_HOST/SMTP_PORT,
+    # esas llamadas fallan con MailSendException/Connection refused — encontrado
+    # al verificar FR-ID-02 en vivo, tasks/lessons.md 2026-08-05. .env.example ya
+    # documentaba "MailHog/Mailpit" como la intención; nunca se había agregado el
+    # contenedor.
+    image: axllent/mailpit:v1.20
+    ports:
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8025/api/v1/info"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
     build:
       context: .
@@ -44,7 +63,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_healthy
     environment:
+      # Nombre del servicio de compose, no "localhost" — el backend y mailpit son
+      # contenedores distintos en la misma red de compose.
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
       DATABASE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-carelink}
       # Rol restringido — lo usa JPA/Hibernate y el resto del tráfico normal
       # (AC-10). El rol administrador (POSTGRES_USER/PASSWORD) solo lo usan

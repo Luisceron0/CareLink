@@ -272,31 +272,67 @@ construir en 8 frentes a la vez.
       `TenantRepository.findById`, nunca de un parámetro) ahora se reverificó en dos
       endpoints independientes — `PatientController` y `ClinicalEncounterController` —
       con la misma implementación (`resolveTenantSlug`). La parte de
-      cross-`service_id` queda explícitamente fuera de este ítem — ver AC-06b abajo,
-      que sigue abierto porque `service_id` en `User` no existe.
+      cross-`service_id` queda explícitamente fuera de este ítem — ver AC-06b abajo.
 - [ ] Test: lectura cross-service dentro del mismo tenant → 403 — AC-06b (cobertura 100%
       en este path)
-      Requiere agregar `service_id` a `User` (no existe todavía — FR-ID-02 lo pide,
-      nunca se construyó) + un migration V4 + el flujo de invitación de usuarios
-      asignando `service_id`. Más grande que un ítem de checklist; es su propia tarea.
+      `service_id` ya existe en `User` (V4, FR-ID-02) — lo que falta ahora es la
+      ENFORCEMENT: que cada endpoint clínico compare el `service_id` de quien llama
+      contra el del recurso, igual que ya hace con el tenant. Ningún endpoint clínico
+      lo hace todavía. Más grande que un ítem de checklist; es su propia tarea.
 
 ### Descubierto durante la Sub-fase 2 (no estaba en el plan original)
-- [ ] **FR-ID-02 no existe: no hay ningún flujo para crear un usuario con rol distinto
-      de `TENANT_ADMIN`.** Encontrado al intentar obtener un JWT con rol `PHYSICIAN`
-      para verificar `ClinicalEncounterController` contra `docker compose up` — el
-      registro de tenant solo crea un `TENANT_ADMIN`, no hay invitación ni asignación de
-      rol. Se promovió un usuario de prueba a `PHYSICIAN` con `UPDATE users SET role=...`
-      directo sobre la base únicamente para poder hacer esa verificación puntual — no es
-      algo que el producto en sí pueda hacer hoy, y no se trató como "arreglado" por
-      hacerlo una vez a mano. Documentado en `docs/SRS.md` (§5.4).
-      **Por qué importa más allá de Sub-fase 2:** las Sub-fases 3–6 tienen endpoints
+- [x] **FR-ID-02 no existía: no había ningún flujo para crear un usuario con rol
+      distinto de `TENANT_ADMIN`.** Encontrado al intentar obtener un JWT con rol
+      `PHYSICIAN` para verificar `ClinicalEncounterController` contra
+      `docker compose up` — el registro de tenant solo creaba un `TENANT_ADMIN`, no
+      había invitación ni asignación de rol.
+      **Por qué importaba más allá de Sub-fase 2:** las Sub-fases 3–6 tienen endpoints
       gateados por rol (`NURSE`, `SPECIALIST`, `LAB_TECH`, `PHARMACIST`, `ADMISSIONS`).
-      Sin un flujo real de asignación de rol, esos endpoints no se pueden
+      Sin un flujo real de asignación de rol, esos endpoints no se podían
       live-verificar contra `docker compose up` con el mismo rigor que Patient y
-      ClinicalEncounter — solo con el mismo atajo de SQL directo, que no prueba nada
-      sobre el producto real. Construir el flujo de invitación no estaba en el alcance
-      de ningún ítem de Sub-fase 2 o 3 del plan original — que quede pendiente de
-      confirmación explícita antes de ampliarlo, en vez de resolverlo en silencio.
+      ClinicalEncounter.
+      **Resuelto, con confirmación explícita del usuario antes de construirlo**
+      (no se amplió el alcance en silencio): `POST /api/v1/users/invite`
+      (`TENANT_ADMIN` únicamente, tenant resuelto del JWT) crea el usuario invitado
+      con rol + `service_id` y una contraseña aleatoria inutilizable; el invitado la
+      reemplaza vía `POST /api/v1/auth/accept-invite` con el token de un solo uso que
+      recibe por email (mismo mecanismo hasheado que `VerifyEmailUseCase`). Migration
+      `V4__user_invitation.sql` agrega `service_id`/`active` a `users`.
+      `POST /api/v1/users/{id}/deactivate` desactiva sin borrar (`ON DELETE RESTRICT`
+      desde V1, retiene el historial de auditoría). `InviteUserUseCase`/
+      `DeactivateUserUseCase` son `@Component`/`@Auditable` (acciones `USER_INVITE`,
+      `USER_DEACTIVATE`).
+      **Hallazgo real encontrado construyendo esto, no una decisión de diseño
+      nueva:** el registro de tenant (FR-ID-01) estaba roto contra un
+      `docker compose up` fresco — `SmtpEmailNotifier` intentaba conectar a SMTP de
+      verdad y no existía ningún catcher de correo en el compose, así que CADA
+      registro fallaba con `MailSendException: Connection refused`. `.env.example`
+      ya documentaba la intención ("MailHog/Mailpit") pero el contenedor nunca se
+      había agregado. Arreglado agregando `axllent/mailpit` a `docker-compose.yml` y
+      wireando `SMTP_HOST=mailpit` — nada sale de la red local de compose (§16.4).
+      **Verificado en vivo, de punta a punta, sin ningún atajo de SQL:** registro de
+      tenant → login `TENANT_ADMIN` → `POST /api/v1/users/invite` (PHYSICIAN,
+      service_id="Urgencias") → 201 → email real capturado en Mailpit con el token →
+      `POST /api/v1/auth/accept-invite` → 200 → login como PHYSICIAN con la
+      contraseña recién fijada → 200 → esa misma sesión usada para
+      `POST /api/v1/encounters` real (201) → `POST /api/v1/users/{id}/deactivate` →
+      login posterior del mismo usuario → 401 con el mismo mensaje genérico que
+      credenciales inválidas (no revela el estado de la cuenta). Fila cruda de
+      `users` con `active = false`, no borrada. `audit_log` con `USER_INVITE` y
+      `USER_DEACTIVATE`, ambos `result = SUCCESS`. `mvn verify` completo (unit +
+      integration vía Failsafe, incluyendo `UserManagementLifecycleIT`) en verde.
+      **Known gaps, no resueltos acá:** autodesactivación no está protegida (un
+      único `TENANT_ADMIN` desactivándose a sí mismo deja el tenant sin forma de
+      invitar a nadie más — no estaba en el texto de FR-ID-02, no se agregó sin
+      pedirlo). Registro de tenant e invitación de usuario no son transaccionales
+      entre sus pasos (una falla de correo después del `INSERT` deja una fila
+      utilizable) — preexistente en `RegisterTenantUseCase`, heredado por
+      `InviteUserUseCase` al tener la misma forma, no introducido ni arreglado acá.
+      Una excepción no capturada explícitamente en el controller (p. ej.
+      `TenantAlreadyExistsException`) devuelve 403 en vez del status semánticamente
+      correcto — falta de un `@ExceptionHandler` global preexistente, no introducida
+      acá; se evitó localmente capturando cada excepción nueva en
+      `UserManagementController`/`AuthController`, no arreglada de raíz.
 
 ## Sub-fase 3: Admissions + Triage
 - [ ] `Admission` entity + clasificación Triage Manchester (prioridad 1–5) — FR-CLN-03
