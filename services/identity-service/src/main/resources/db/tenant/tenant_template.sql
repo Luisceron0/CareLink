@@ -133,3 +133,30 @@ CREATE TRIGGER clinical_encounter_no_update_when_signed
 
 -- Sin DELETE: un encounter, firmado o no, no se borra — es historia clínica.
 GRANT SELECT, INSERT, UPDATE ON clinical_encounters TO {{app_role}};
+
+-- Admission (FR-CLN-03). Sin cifrado — a diferencia de patients/clinical_encounters,
+-- no hay ningún campo de texto libre con PHI acá: admission_type y triage_priority son
+-- categóricos (mismo criterio que role/diagnosis_cie10). triage_priority es NULL para
+-- CONSULTA_EXTERNA — Triage Manchester es una herramienta de urgencias; esa regla la
+-- impone RegisterAdmissionUseCase, no una constraint acá, mismo criterio que el resto
+-- de las reglas de negocio de este proyecto (ver TenantSlug/DataSourceConfig: las
+-- constraints de base son para invariantes de seguridad adversarial, no reglas de
+-- negocio ordinarias).
+--
+-- clinical_encounter_id es NULL hasta que se abre un encounter para esta admisión —
+-- LinkEncounterToAdmissionUseCase lo completa con un UPDATE, por eso el GRANT incluye
+-- UPDATE además de SELECT/INSERT.
+CREATE TABLE admissions (
+    id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    patient_id             UUID        NOT NULL,
+    admission_type         TEXT        NOT NULL,
+    triage_priority        INTEGER,
+    admitted_by_user_id    UUID        NOT NULL,
+    admitted_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    clinical_encounter_id  UUID,
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_admissions_patient_id ON admissions (patient_id);
+
+GRANT SELECT, INSERT, UPDATE ON admissions TO {{app_role}};

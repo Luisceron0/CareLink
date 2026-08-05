@@ -327,7 +327,7 @@ not hidden; the schema is shared.
 
 ### 5.4 Clinical Encounter, Admissions and Triage
 
-> **Status: BUILT (Encounter, core fields) — Sub-fase 3 (Triage) not started.**
+> **Status: BUILT (Encounter, core fields; Admissions + Triage).**
 > `ClinicalEncounter`, `POST/PUT/GET /api/v1/encounters`, `POST /api/v1/encounters/{id}/sign`.
 > AC-08 verified live against `docker compose`: sign → 200, an attempted edit
 > afterward → 409 with a clear body (not a generic 500), the raw DB row showing
@@ -351,6 +351,31 @@ not hidden; the schema is shared.
 > "amendments are new versioned entries" mechanism FR-CLN-02 describes — blocking
 > mutation after signing already demonstrates the immutability guarantee AC-08 asks
 > for; the versioned-amendment workflow on top of that is separate machinery.
+>
+> **FR-CLN-03 — Admissions + Triage, built.** `Admission`,
+> `POST /api/v1/admissions` (`ADMISSIONS` role only, per §4), `POST
+> /api/v1/admissions/{id}/link-encounter` (`PHYSICIAN` only — whoever opens the
+> encounter is who knows which admission it belongs to), `GET /api/v1/admissions/{id}`.
+> Manchester Triage priority (1–5, `TriagePriority` value object) is **required** for
+> `URGENCIAS` admissions and **rejected** for `CONSULTA_EXTERNA` — a reading of "for
+> urgencias and consulta externa" in the FR text below that treats admission itself as
+> applying to both contexts while Manchester Triage specifically stays an
+> emergency-department tool, not extended to outpatient by this milestone; not
+> ambiguous in the code even if the FR sentence alone doesn't spell out the split.
+> `admissions` has no free-text PHI column — admission type and triage priority are
+> categorical, same treatment as `role`/`diagnosis_cie10` — so no encryption layer was
+> needed here, unlike `patients`/`clinical_encounters`.
+>
+> Verified live end-to-end against `docker compose up`, no SQL shortcuts: an
+> `ADMISSIONS`-role user (itself created through FR-ID-02's real invite flow) registers
+> a `URGENCIAS` admission with triage priority 2 → 201; the same call from a
+> `PHYSICIAN` token → 403; `URGENCIAS` without a priority → 400 with a clear message,
+> and that rejection itself lands in `audit_log` as `ADMISSION_REGISTER`/`result =
+> ERROR` (FR-CLN-13 holding for a real validation failure, not just a DB-level one).
+> The `PHYSICIAN` then opens a `ClinicalEncounter` for the same patient and links it to
+> the admission → 200; re-reading the admission shows `clinicalEncounterId` populated.
+> `AdmissionLifecycleIT` covers the same path plus AC-06 (a second tenant reading the
+> first tenant's admission gets nothing).
 
 #### FR-CLN-02 — Clinical Encounter
 A `PHYSICIAN` creates an encounter: chief complaint, exam, diagnosis (CIE-10), treatment
@@ -778,7 +803,7 @@ the task-level breakdown; the sub-fases themselves are normative here:
 | 0 | Repo hygiene: remove `api-gateway-identity`, purge `.db`, single SRS | — | Done, except the `test_identity.db` git-history purge, explicitly reserved for the author's own call |
 | 1 | `DemoModeGuard` + Audit Log (append-only, AOP-intercepted) | Fase 0 | Done |
 | 2 | Identity gaps closed + Patient + ClinicalEncounter (signed, immutable) | Fase 1 | Done except AC-06b (needs `service_id`-based *enforcement*, not just the column — see §5.1 FR-ID-02). FR-ID-02 (user invitation, role + `service_id` assignment, deactivation) built after being found missing during live verification of Sub-fase 2 |
-| 3 | Admissions + Triage | Fase 2 | Not started |
+| 3 | Admissions + Triage | Fase 2 | Done |
 | 4 | Health Diary (NANDA/NIC/NOC) + Knowledge Engine (k-anonymity) | Fase 2 | Not started |
 | 5 | Interconsultations (with per-request revocation check) | Fase 2, 4 | Not started |
 | 6 | Labs + Pharmacy | Fase 2 | Not started |

@@ -334,10 +334,35 @@ construir en 8 frentes a la vez.
       acá; se evitó localmente capturando cada excepción nueva en
       `UserManagementController`/`AuthController`, no arreglada de raíz.
 
-## Sub-fase 3: Admissions + Triage
-- [ ] `Admission` entity + clasificación Triage Manchester (prioridad 1–5) — FR-CLN-03
-- [ ] Vínculo `Admission` → `ClinicalEncounter` cuando se abre uno
-- [ ] Tests de flujo: ingreso → triage → apertura de encounter
+## Sub-fase 3: Admissions + Triage — cerrada 2026-08-05
+- [x] `Admission` entity + clasificación Triage Manchester (prioridad 1–5) — FR-CLN-03
+      `TriagePriority` (value object, valida 1-5), `AdmissionType` (URGENCIAS |
+      CONSULTA_EXTERNA). Prioridad de triage OBLIGATORIA para URGENCIAS y RECHAZADA
+      para CONSULTA_EXTERNA — Triage Manchester es específicamente una herramienta de
+      urgencias, esa lectura del texto del SRS (que no lo desambigua del todo) quedó
+      documentada en `docs/SRS.md` §5.4, no dejada implícita en el código nomás.
+      `POST /api/v1/admissions` gateado a rol `ADMISSIONS` (§4). Sin cifrado en
+      `admissions` — a diferencia de `patients`/`clinical_encounters`, no hay ningún
+      campo de texto libre con PHI, todo es categórico.
+- [x] Vínculo `Admission` → `ClinicalEncounter` cuando se abre uno
+      `POST /api/v1/admissions/{id}/link-encounter`, gateado a `PHYSICIAN` — quien abre
+      el encounter es quien sabe a qué admisión corresponde, no quien hizo el ingreso.
+      `LinkEncounterToAdmissionUseCase` es `@Component`/`@Auditable`
+      (`ADMISSION_LINK_ENCOUNTER`).
+- [x] Tests de flujo: ingreso → triage → apertura de encounter
+      `AdmissionLifecycleIT`: ingreso URGENCIAS con triage 2 → apertura de
+      ClinicalEncounter → vínculo → re-lectura confirma `clinicalEncounterId`
+      poblado; URGENCIAS sin prioridad y CONSULTA_EXTERNA con prioridad ambos
+      rechazados (con el contrapeso de que CONSULTA_EXTERNA sin prioridad sí es
+      válida); AC-06 aplicado a admisiones (lectura cross-tenant → vacío).
+      Verificado en vivo contra `docker compose up`, de punta a punta, con usuarios
+      reales invitados vía FR-ID-02 (sin atajo de SQL): registro de tenant → invitar
+      ADMISSIONS y PHYSICIAN → aceptar ambas invitaciones → login real de cada uno →
+      `POST /api/v1/admissions` como ADMISSIONS (201) → el mismo intento como
+      PHYSICIAN (403, confirma el gate de rol) → URGENCIAS sin prioridad (400, y esa
+      fila de rechazo quedó en `audit_log` con `result = ERROR`) → PHYSICIAN abre
+      encounter → `link-encounter` (200) → re-lectura muestra el vínculo. `mvn verify`
+      completo en verde.
 
 ## Sub-fase 4: Diario de enfermería + Motor de Conocimiento
 - [ ] `HealthDiaryEntry` + `VitalSigns` + `HealthIntervention` (NIC) +
