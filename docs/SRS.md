@@ -239,6 +239,15 @@ value applies and why) + refresh token, HttpOnly cookie, rotated on use, revoked
 password change. Rate limiting: 5 failed attempts / 60s / IP → lockout + alert
 (Bucket4j or equivalent).
 
+> **Status: BUILT (rate limiting).** `LoginRateLimiter`, in-memory per instance — not
+> Bucket4j, a plain sliding-window counter; equivalent behavior without adding a
+> dependency for something this small, and still consistent with "no Redis" (§9). Keyed
+> by `request.getRemoteAddr()`, not `X-Forwarded-For` — this milestone runs no reverse
+> proxy to sanitize that header (no public demo, ADR-015), so trusting it would let a
+> client pick which IP gets rate-limited by changing a header value (§8.4). "Alert" is a
+> structured WARN log, the alerting channel this milestone actually has (§14) — no
+> email/webhook integration exists to alert through (§16.4).
+
 #### FR-ID-04 — Session Security
 Concurrent session limit: 3 per user. Token revocation via CareLink's Vault-backed JWKS
 approach (ADR-004 — supersedes ClinicTrack's simpler `revoked_tokens` table, which was a
@@ -426,8 +435,8 @@ through parameterized statements only (§8.4).
 | DDL injection via tenant slug | Slug concatenated into `CREATE SCHEMA` | CRITICAL | Validated at the sink via `TenantSlug` value object, not only at the caller | Low |
 | JWT tampering (role escalation in payload) | Modified JWT | CRITICAL | RS256 signature validated before payload is read | Very Low |
 | Entity enumeration | Sequential IDs | MEDIUM | UUID v4 on all entities | Very Low |
-| Brute-force login | Automated attempts | HIGH | Rate limiting: 5/60s/IP → 429 + lockout | Low |
-| Unhandled exception discloses internals | Stack trace / field names in response | MEDIUM | `GlobalExceptionHandler`, generic response + request ID | Very Low |
+| Brute-force login | Automated attempts | HIGH | Rate limiting: 5/60s/IP → 429 + lockout — **built**, `LoginRateLimiter` (§5.1) | Low |
+| Unhandled exception discloses internals | Stack trace / field names in response | MEDIUM | `GlobalExceptionHandler`, generic response + request ID — **not built**. `server.error.include-message/include-stacktrace: never` (application.yml) already blocks the leak at the response-body level; what's missing is the request-ID correlation and a single place to map exception → status code. Today `AuthController` maps its own exceptions inline case by case (login → 401 fixed while building rate limiting; `/refresh`, `/verify` still fall through to a generic 500) | Low |
 | Third party deploys this as a real clinical system | Public repo cloned, pointed at real DB | CRITICAL | `DemoModeGuard` boot failure + demo stamp requirement + no public demo (§15) | Low |
 
 ### 8.2 OWASP Top 10 2025 Coverage
