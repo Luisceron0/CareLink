@@ -104,16 +104,22 @@ services:
       start_period: 40s
 
   frontend:
-    # Placeholder hasta Sub-fase 7, donde lo reemplaza la SPA React 18 + Vite
-    # + Tailwind (ADR-014). Sirve una página estática que dice justamente eso;
-    # no simula funcionalidad que no existe.
-    image: nginx:1.27-alpine
+    # SPA React 18 + Vite + Tailwind (ADR-014), servida estática por nginx, que además
+    # hace de proxy de /api hacia el backend dentro de la red de compose. El frontend
+    # habla siempre con rutas relativas: no hay una URL de backend embebida en el bundle
+    # que haya que cambiar por entorno (ni que pueda quedar apuntando a otro lado).
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     depends_on:
       - backend
-    volumes:
-      - ./docker/frontend-placeholder:/usr/share/nginx/html:ro
     ports:
       - "${FRONTEND_PORT:-5173}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
 
 volumes:
   pgdata:
