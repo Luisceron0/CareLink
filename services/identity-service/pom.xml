@@ -132,10 +132,28 @@
                         <parameters>true</parameters>
                     </configuration>
                 </plugin>
+                <!-- REFRESH_TOKEN_HMAC_SECRET para los tests.
+
+                     Desde la auditoría de Sub-fase 8, TokenHasher se niega a inicializarse
+                     sin este secreto (antes caía a un default escrito en el repositorio, o
+                     sea una credencial pública). Ese control es correcto y hace que la
+                     aplicación NO ARRANQUE sin configurarlo — incluida la que levantan los
+                     tests de contexto completo.
+
+                     El valor de acá es un secreto de test, deliberadamente obvio en su
+                     nombre: no protege nada porque los tests no guardan sesiones reales, y
+                     ser reconocible evita que alguien lo confunda con un secreto de
+                     verdad. No se puede setear desde código Java porque TokenHasher lee
+                     System.getenv, que en la JVM es de solo lectura. -->
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>3.1.2</version>
+                    <configuration>
+                        <environmentVariables>
+                            <REFRESH_TOKEN_HMAC_SECRET>test-only-not-a-real-secret-0123456789</REFRESH_TOKEN_HMAC_SECRET>
+                        </environmentVariables>
+                    </configuration>
                 </plugin>
                 <!-- Los tests de integración (`*IT`) no los ejecuta surefire, solo
                      failsafe — y failsafe no estaba configurado. Consecuencia:
@@ -147,6 +165,11 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-failsafe-plugin</artifactId>
                     <version>3.1.2</version>
+                    <configuration>
+                        <environmentVariables>
+                            <REFRESH_TOKEN_HMAC_SECRET>test-only-not-a-real-secret-0123456789</REFRESH_TOKEN_HMAC_SECRET>
+                        </environmentVariables>
+                    </configuration>
                     <executions>
                         <execution>
                             <goals>

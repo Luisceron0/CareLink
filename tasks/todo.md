@@ -531,12 +531,53 @@ construir en 8 frentes a la vez.
       casos previos" con un diagnóstico inexistente — los dos estados distinguibles en
       pantalla, no solo en el JSON.
 
-## Sub-fase 8: Verificación de seguridad end-to-end
-- [ ] Ampliar `.semgrep/` a concatenación JPQL, no solo `String sql = "..." + $X`
-- [ ] `sqlmap --level 3` contra instancia local — cubre vector de cabeceras — AC-11
-- [ ] Reporte commiteado en `docs/security/`
-- [ ] CI en verde real: quitar cualquier `|| true` remanente; confirmar con un branch de
-      prueba que un test roto pone CI en rojo
+## Sub-fase 8: Verificación de seguridad end-to-end — cerrada 2026-08-06
+Reporte completo: `docs/security/AUDIT-2026-08-06.md`.
+- [x] Ampliar `.semgrep/` a concatenación JPQL, no solo `String sql = "..." + $X`
+      La regla original cubría una forma que ESTE codebase no usa (los repositorios
+      arman el SQL con StringBuilder o lo pasan directo a jdbcTemplate), así que llevaba
+      varias sub-fases en verde sobre código que nunca había mirado. Tres reglas ahora:
+      la original, concatenación dentro de llamadas JDBC, y JPQL/nativas.
+      **Detalle que costó descubrir:** los patrones usan `$A + $B` y no `"..." + $X`
+      porque en Java `"x" + v + "y"` se parsea como `(("x" + v) + "y")` — un patrón
+      anclado al literal izquierdo NO matchea la inyección clásica. Se descubrió
+      escribiendo un archivo deliberadamente vulnerable y viendo que la primera versión
+      no lo detectaba. Verificación final: 3 hallazgos sobre el vulnerable, 0 sobre el
+      código real.
+- [x] `sqlmap --level 3` contra instancia local — cubre vector de cabeceras — AC-11
+      No inyectable en `/patients/{id}` ni en `/knowledge/search` (el de mayor
+      superficie: 3 query params con SQL dinámico), incluidos User-Agent y Referer.
+      `/auth/login` quedó NO CONCLUYENTE: el rate limiter de FR-ID-03 frenó el escaneo
+      ("target appears to be rate-limiting requests"). Se documenta como tal, con la
+      evidencia estática que sí hay (query derivada de Spring Data, cero `@Query`
+      manuales en todo el proyecto).
+- [x] Reporte commiteado en `docs/security/`
+- [x] CI: gate nuevo contra secretos con default permisivo
+      **Hallazgo crítico:** `TokenHasher` caía a `getOrDefault(..., "dev-refresh-secret")`
+      — hasheaba TODOS los refresh tokens con un secreto escrito en el repositorio si
+      faltaba la env var. El gate de AC-04 NO lo detectó porque busca el literal
+      `dev-secret`, que no matchea `dev-refresh-secret`. Corregido: la app no arranca
+      sin el secreto (+ `RefreshSecretGuard` para que falle en el arranque y no en el
+      primer login). Gate nuevo que busca el PATRÓN estructural, no un literal, y
+      `SecretConfigurationGuardTest` que lo cubre por comportamiento. Los tres,
+      verificados rompiéndolos a propósito.
+- [x] Healthcheck del frontend siempre en rojo (IPv6/`localhost` vs nginx IPv4)
+      Un healthcheck permanentemente en rojo deja de ser señal, igual que el `|| true`.
+
+## Criterios de completitud del milestone
+- [x] Todos los AC de §18.1 y §18.2 del SRS v3.0 en "Pass"
+      Los 15 (AC-01 a AC-14, AC-06b incluido). AC-11 con la salvedad documentada de
+      `/auth/login` (H-05 del reporte).
+- [x] `docs/SRS.md` §5 y §16.1 actualizados con el estado real por módulo
+- [x] `tasks/lessons.md` actualizado
+- [ ] Walkthrough grabado (GIF/video) para presentación de portafolio — sustituye al
+      demo público que se decidió no desplegar (ADR-015)
+      **Único ítem abierto del milestone.** Requiere grabar pantalla, que no se puede
+      hacer desde acá — queda para el autor. El stack levanta con `docker compose up` y
+      el frontend en :5173 ya cubre las Sub-fases 1 a 6.
+- [ ] `git filter-repo` para purgar `test_identity.db` del historial (Sub-fase 0, T3)
+      Sigue reservado a decisión explícita del autor: reescribe historia y obliga a
+      force-push sobre un PR ya mergeado.
 
 ## Criterios de completitud del milestone
 - [ ] Todos los AC de §18.1 y §18.2 del SRS v3.0 en "Pass"

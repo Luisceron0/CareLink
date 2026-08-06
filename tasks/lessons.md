@@ -353,3 +353,50 @@ de problema que el resto de esta sesión: una señal verde que no verifica lo qu
 supone que verifica (los tests que nunca corrieron por falta de Failsafe, el suite en
 verde sobre una app que no arrancaba).
 **Tags:** #build #testing
+
+## [2026-08-06] — Un gate que busca un literal solo detecta ese literal: el secreto por defecto volvió con otro nombre
+**Contexto:** la auditoría de Sub-fase 8 encontró que `TokenHasher` hacía
+`getenv().getOrDefault("REFRESH_TOKEN_HMAC_SECRET", "dev-refresh-secret")`. Sin la
+variable de entorno, la aplicación arrancaba normalmente y hasheaba TODOS los refresh
+tokens con un secreto escrito en el repositorio — el control de "guardamos hasheado, no
+en claro" seguía existiendo en apariencia y no protegía nada.
+**Error cometido:** es EXACTAMENTE el mismo defecto que ADR-010 eliminó en Sub-fase 0
+(el fallback `dev-secret` del gateway Python), reaparecido en otro archivo, con otro
+nombre. Y el gate de CI que se escribió para que eso no volviera —`grep "HS256\|dev-secret"`—
+no lo detectó, porque `dev-refresh-secret` no contiene `dev-secret` como substring.
+**Consecuencia:** el defecto convivió con un gate diseñado específicamente para
+prevenirlo, durante ocho sub-fases, con CI en verde todo el tiempo. Gitleaks tampoco lo
+marca: es un literal con forma de identificador, no un patrón de secreto.
+**Corrección:** (a) la aplicación ya no arranca sin el secreto, mismo criterio que
+`CLINIC_ENCRYPTION_KEY`; (b) `RefreshSecretGuard` adelanta la validación al arranque,
+porque si no recién dispararía en el primer login —y hasta entonces `/actuator/health`
+diría UP; (c) el gate nuevo busca el PATRÓN estructural (`getOrDefault` sobre una
+variable con nombre de secreto) en vez de un literal.
+**Regla para el futuro:** un gate escrito contra una instancia concreta de un defecto
+detecta esa instancia, no la clase. Cuando se cierra un agujero con un `grep`, la
+pregunta a hacerse es "¿qué FORMA tiene este defecto?" y no "¿qué texto tenía esta vez?".
+El texto cambia con el próximo desarrollador que lo reintroduzca sin saber que existió.
+**Tags:** #seguridad #testing #ci
+
+## [2026-08-06] — Una regla de SAST en verde sobre código que nunca miró
+**Contexto:** `.semgrep/no-string-sql.yaml` tenía un único patrón,
+`String sql = "..." + $X;`, y estaba en verde desde Sub-fase 0.
+**Error cometido:** ese patrón cubre una forma de escribir SQL que este codebase NO usa.
+Los nueve repositorios con SQL dinámico arman la consulta con `StringBuilder` o la pasan
+directo a `jdbcTemplate.query(...)`. La regla nunca había evaluado una sola línea del
+código que supuestamente vigilaba.
+**Segundo error, encontrado al corregir el primero:** la primera versión ampliada usaba
+`$T.query("..." + $X, ...)` y TAMPOCO detectaba la inyección clásica. En Java,
+`"SELECT ... '" + userInput + "'"` se parsea como `(("SELECT ... '" + userInput) + "'")`,
+así que un patrón anclado al literal de la izquierda no matchea el nodo de más afuera.
+Se descubrió porque se escribió un archivo deliberadamente vulnerable ANTES de confiar
+en la regla, y la regla lo dejó pasar.
+**Corrección:** patrones sobre `$A + $B` (la concatenación más externa, sin importar el
+anidamiento), más excepciones acotadas por nombre de identificador para los dos casos
+auditados de este repositorio (`schema`, `sql + "literal"`). Verificación final en las
+dos direcciones: 3 hallazgos sobre el archivo vulnerable, 0 sobre el código real.
+**Regla para el futuro:** una regla de SAST se valida contra código que DEBE detectar,
+no contra código limpio. "0 hallazgos" sin un caso positivo que la ejercite es
+indistinguible de "la regla no matchea nada" — el mismo problema del `|| true` y de los
+tests que nunca corrieron por falta de Failsafe, con otra forma.
+**Tags:** #seguridad #testing #sast
