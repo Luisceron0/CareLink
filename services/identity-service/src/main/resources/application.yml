@@ -119,3 +119,10 @@ carelink:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/carelink}
     username: ${POSTGRES_USER:carelink}
     password: ${POSTGRES_PASSWORD:}
+
+  # k-anonimato del Motor de Conocimiento (FR-CLN-07, ADR-007). Default 5, como
+  # declara §5.6. SearchKnowledgeUseCase rechaza el arranque si se configura por
+  # debajo de 2 — configurarlo hacia arriba (más estricto) es una decisión
+  # operativa legítima; hacia abajo hasta desactivarlo no lo es, y ADR-007 lo
+  # declara no negociable.
+  knowledge-anonymity-threshold: ${KNOWLEDGE_ANONYMITY_THRESHOLD:5}
