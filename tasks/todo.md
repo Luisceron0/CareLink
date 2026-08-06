@@ -589,13 +589,35 @@ Reporte completo: `docs/security/AUDIT-2026-08-06.md`.
 - [x] `tasks/lessons.md` actualizado
 - [ ] Walkthrough grabado (GIF/video) para presentación de portafolio — sustituye al
       demo público que se decidió no desplegar (ADR-015)
-      **Pendiente:** requiere grabación de pantalla, que no se puede hacer desde este
-      entorno. El frontend ya está construido y funcionando (Sub-fase 7), así que es
-      grabar el flujo, no construirlo.
+      **Guion completo en `docs/portfolio/WALKTHROUGH.md`** — checklist de pre-grabación,
+      7 escenas con qué mostrar/decir en cada una (arranque + roles, historia clínica
+      inmutable, k-anonimato con sus dos estados distinguibles, revocación de acceso por
+      interconsulta con el mismo JWT pasando de 200 a 403, valor crítico de laboratorio,
+      cierre con el reporte de auditoría) y checklist de post-producción. Falta la
+      grabación en sí — requiere captura de pantalla, no disponible en este entorno.
+- [x] Licencia (ADR-011) — resuelta: MIT (`LICENSE`), con nota de alcance no legal
+      aclarando que sigue siendo una implementación de referencia sin PHI real, no un
+      producto. Bloqueaba la presentación del repo desde v2.0.
+- [x] `SECURITY.md`/`THREAT_MODEL.md` — eran stubs de la era CareLink v2.0 (mencionaban
+      Supabase Vault y `pip-audit`, infraestructura que ADR-012/ADR-015 reemplazaron).
+      `THREAT_MODEL.md` consolidado en un solo párrafo que apunta a SRS §8 — dos modelos
+      de amenazas en paralelo es el riesgo, no la falta de un segundo documento.
+      `SECURITY.md` reescrito como mapa real: dónde vive cada control, con enlace directo
+      al reporte de auditoría.
+- [x] `README.md` actualizado: referencias obsoletas corregidas (`migrations/` ya no
+      existe, el frontend ya no es placeholder), agregada Sub-fase 8, y la sección de
+      Seguridad ahora enlaza al reporte de auditoría real en vez de listar controles sin
+      evidencia.
 - [ ] **Pendiente de decisión del autor:** purga de `test_identity.db` del historial de
       git (Sub-fase 0). Único ítem que quedó abierto desde el principio por decisión
       explícita, no por olvido.
-- [ ] **Pendiente de infraestructura:** ver el workflow correr en GitHub Actions.
+- [ ] **Pendiente de infraestructura / decisión del autor:** la rama de este milestone
+      (`chore/subfase-0-repo-hygiene`) nunca se pusheó a GitHub — no existe en el remoto.
+      Los runs de Actions visibles son de marzo de 2026, de una rama distinta
+      (`feat/f2-physician-portal-schedule`, previa a la fusión de ADR-013), y todos
+      fallidos — no tienen relación con el trabajo de esta sesión. No hay ningún run de
+      CI roto para corregir porque nunca corrió CI sobre este código. Pushear (y
+      opcionalmente abrir el PR) queda a decisión explícita del autor.
 
 ## Revisión
 
