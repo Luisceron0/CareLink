@@ -1022,7 +1022,12 @@ that container, not outside it: no PHI, no production, no exception.
 Retained unchanged — the second, weaker Identity implementation is deleted, not merged.
 
 ### ADR-011 — License
-Unresolved — `[PENDIENTE]`, blocks repository presentation, unchanged from v2.0.
+**Status: RESOLVED, 2026-08-06.** MIT (`LICENSE`). This is a portfolio reference
+implementation, not a product with users to protect from each other — a permissive
+license matches that, and is the expectation for code meant to be read and judged. The
+license text is unconditional as MIT requires; the containment posture (no real PHI, no
+production target) is stated separately in the LICENSE file as project context, not as a
+legal term, and remains governed by §1.6 regardless of how the code is licensed.
 
 ### ADR-012 — Docker Compose for Local Reproducibility
 **Decision:** local development uses Docker Compose (backend + PostgreSQL + frontend),
@@ -1315,7 +1320,7 @@ built; a pending AC for unbuilt work would imply a roadmap this SRS doesn't comm
 
 | Item | Section | Blocking |
 |---|---|---|
-| License selection | ADR-011 | Repository presentation |
+| ~~License selection~~ | ADR-011 | **Closed 2026-08-06** — MIT, see `LICENSE` |
 | ~~System name confirmation~~ | Header | **Closed 2026-08-04** — stays "CareLink". Java package is `com.carelink`; renaming touches 800+ lines of documentation for no technical gain |
 | Second locale (en-US) for portfolio | §12 | Not blocking; nice-to-have |
 | Full endpoint inventory | §11 | Written per sub-fase, not upfront |
