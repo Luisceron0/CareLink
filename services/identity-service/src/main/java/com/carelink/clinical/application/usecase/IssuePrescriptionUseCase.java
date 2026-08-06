@@ -27,10 +27,12 @@ public class IssuePrescriptionUseCase {
             patientIdExpression = "#patientId")
     public Prescription execute(TenantSlug tenantSlug, UUID patientId, UUID clinicalEncounterId,
                                  UUID interconsultationId, UUID prescriberUserId, String medication,
-                                 String dosage, String instructions, String serviceId) {
+                                 String dosage, String instructions, String frequency, Integer durationDays,
+                                 String route, String medicationClass, Integer totalDoses, String serviceId) {
         Prescription p = new Prescription(
                 UUID.randomUUID(), patientId, clinicalEncounterId, interconsultationId, prescriberUserId,
-                medication, dosage, instructions, OffsetDateTime.now(), serviceId);
+                medication, dosage, instructions, frequency, durationDays, route, medicationClass,
+                totalDoses, OffsetDateTime.now(), serviceId);
         repository.save(tenantSlug, p);
         return p;
     }

@@ -462,11 +462,42 @@ construir en 8 frentes a la vez.
       responde 200, prescribe 201 sobre el encounter raíz; el médico cierra; el MISMO
       JWT del especialista, sin re-login, obtiene 403 en leer, responder y prescribir.
 
-## Sub-fase 6: Laboratorio + Farmacia
-- [ ] `LabOrder` + `LabResult` con flag de valor crítico — FR-CLN-11
-- [ ] `Prescription` (si no vino de Sub-fase 5) + `DispensationRecord` + índice de
+## Sub-fase 6: Laboratorio + Farmacia — cerrada 2026-08-06
+- [x] `LabOrder` + `LabResult` con flag de valor crítico — FR-CLN-11
+      `critical_value` es un flag EXPLÍCITO que carga el laboratorio, no algo derivado
+      de comparar contra un rango: los rangos dependen del método, el equipo y la
+      población, y derivarlo acá sería inventar un criterio clínico.
+      "Notificar al médico solicitante" es una FILA que el médico consulta, no un side
+      effect que se pierde si nadie miraba (§16.4 deja fuera email/SMS). Resultado y
+      notificación se escriben en UNA transacción: un valor crítico guardado sin su
+      notificación es justo el fallo que el requisito previene. Solo el destinatario
+      puede acusar recibo. Cargar el resultado es write-once — sobreescribir un
+      resultado emitido es corregir una historia clínica, no un UPDATE silencioso.
+- [x] `Prescription` (vino de Sub-fase 5) + `DispensationRecord` + índice de
       adherencia — FR-CLN-12
-- [ ] Warning (no bloqueo) de conflicto alergia/misma clase de medicamento activa
+      El ratio NO se recorta en 1.0: dispensar más de lo prescrito es una señal clínica
+      real (error de dispensación, prescripción cambiada fuera del sistema) y aplanarlo
+      escondería el caso que vale la pena mirar. Sin total de dosis registrado, la
+      adherencia es NO CALCULABLE, no 0% — "no se registró el total" y "el paciente no
+      tomó nada" son afirmaciones clínicas distintas.
+- [x] Warning (no bloqueo) de conflicto alergia/misma clase de medicamento activa
+      Devuelve 200 con la lista, nunca 409: un status de bloqueo sería exactamente el
+      bloqueo que FR-CLN-12 prohíbe. Los dos tipos se detectan distinto por una razón
+      concreta: las alergias están CIFRADAS (AC-09) y no se comparan en SQL — se
+      descifra la fila de ESE paciente y se compara en memoria (una fila, no un
+      barrido); `medication_class` está en claro justamente para que el chequeo de
+      misma clase sí pueda ser una consulta. La coincidencia de alergia es
+      deliberadamente amplia: en una advertencia que no bloquea, un falso positivo
+      cuesta una lectura y un falso negativo cuesta una reacción alérgica. NO es un
+      motor de interacciones farmacológicas — no hay catálogo de principios activos y
+      no se inventa uno.
+- [x] `MedicationAdministration` (diferido desde Sub-fase 4)
+      Cubierto funcionalmente por `DispensationRecord`: es el registro de qué se
+      entregó, cuánto y quién, que es lo que el índice de adherencia necesita. Una
+      entidad separada de "administración" (enfermería administrando la dosis, distinto
+      de farmacia dispensándola) NO se construyó — FR-CLN-12 define la adherencia sobre
+      dosis dispensadas y no distingue los dos actos. Anotado como decisión, no como
+      olvido.
 
 ## Sub-fase 7: Frontend
 - [ ] React 18 + Vite + Tailwind — SPA única, vistas por rol (§4) — ADR-014

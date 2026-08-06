@@ -532,7 +532,27 @@ that patient is denied — there is no persisted "still has access" state to go 
 
 ### 5.8 Laboratory
 
-> **Status: TO BE BUILT — Milestone 1, Sub-fase 6.**
+> **Status: BUILT.** `POST/GET /api/v1/lab/orders`, `POST /api/v1/lab/orders/{id}/result`,
+> `GET /api/v1/lab/notifications`, `POST /api/v1/lab/notifications/{id}/acknowledge`.
+> Ordering is `PHYSICIAN` or `LAB_TECH` (§5.8 says both manage orders); recording the
+> result is `LAB_TECH` only.
+>
+> `critical_value` is an explicit flag the lab sets, **not** something this system
+> derives by comparing the result against a range: reference ranges depend on method,
+> analyser, and population, and deriving it here would be inventing a clinical criterion
+> nobody established.
+>
+> "Must trigger notification to the ordering physician" is implemented as a **row the
+> physician queries**, not a fire-and-forget side effect — §16.4 rules out email/SMS this
+> milestone, and a notification that is only an in-memory event is lost if nobody was
+> watching. `acknowledged_at` being null keeps it an open obligation rather than a
+> message that already went by. The result and its notification are written in **one
+> transaction**: a critical result stored without its notification is precisely the
+> failure this requirement exists to prevent. Only the addressee can acknowledge —
+> someone else doing it would erase the record that the responsible physician saw it.
+>
+> Recording a result is write-once (`WHERE resulted_at IS NULL`). Overwriting an issued
+> lab result is amending a clinical record, which is not a silent `UPDATE`.
 
 #### FR-CLN-11 — Lab Orders and Results
 `LAB_TECH` and `PHYSICIAN` manage orders linked to an encounter; results include a
@@ -541,7 +561,29 @@ no email/SMS integration this milestone — see §16.4).
 
 ### 5.9 Pharmacy
 
-> **Status: TO BE BUILT — Milestone 1, Sub-fase 6.**
+> **Status: BUILT.** `POST /api/v1/pharmacy/dispensations`,
+> `GET /api/v1/pharmacy/prescriptions/{id}/adherence`, `GET /api/v1/pharmacy/conflicts`.
+> Dispensation is `PHARMACIST`-only (§4).
+>
+> **Conflict warnings return `200` with the list, never `409`** — FR-CLN-12 says they
+> warn and never block, and a blocking status code would be exactly the block the
+> requirement prohibits. A physician calling this is evaluating, not asking permission:
+> the system informs, clinical judgement decides. The two conflict types are detected
+> differently for a concrete reason: patient allergies are **encrypted** (AC-09) so they
+> cannot be compared in SQL and are decrypted for that one patient's row and matched in
+> memory (acceptable — one row, the patient being treated, not a sweep); `medication_class`
+> is stored in cleartext precisely so the same-class check *can* be a query. Allergy
+> matching is deliberately broad (case-insensitive substring, both directions): in a
+> warning that does not block, a false positive costs the physician a glance and a false
+> negative costs the patient an allergic reaction. It is **not** a drug-interaction
+> engine — no active-ingredient catalogue exists here and none is invented.
+>
+> Adherence is `dispensed / prescribed`. The ratio is **not clamped at 1.0**: dispensing
+> more than prescribed is a real clinical signal (a dispensing error, a prescription
+> changed outside the system) and flattening it would hide the case worth looking at. A
+> prescription with no recorded dose total yields **"not calculable"**, not 0% — "no
+> total was recorded" and "the patient took nothing" are different clinical claims, and
+> reporting 0% would assert the second.
 
 #### FR-CLN-12 — Prescription, Dispensation, Adherence
 Prescription: medication, dosage, frequency, duration, route, prescriber. Dispensation
@@ -899,7 +941,7 @@ the task-level breakdown; the sub-fases themselves are normative here:
 | 3 | Admissions + Triage | Fase 2 | Done |
 | 4 | Health Diary (NANDA/NIC/NOC) + Knowledge Engine (k-anonymity) | Fase 2 | Done |
 | 5 | Interconsultations (with per-request revocation check) | Fase 2, 4 | Done |
-| 6 | Labs + Pharmacy | Fase 2 | Not started |
+| 6 | Labs + Pharmacy | Fase 2 | Done |
 | 7 | Frontend (React + Vite, role-based SPA) covering Fases 1–6 | Fase 6 | Not started |
 | 8 | Security verification end-to-end: sqlmap, semgrep rule extension, CI gates blocking | Fase 7 | Not started |
 

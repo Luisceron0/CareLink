@@ -182,7 +182,9 @@ public class InterconsultationController {
 
         Prescription p = issuePrescriptionUseCase.execute(
                 tenantSlug.get(), ic.patientId(), ic.clinicalEncounterId(), ic.id(), principal.userId(),
-                req.getMedication(), req.getDosage(), req.getInstructions(), ic.serviceId());
+                req.getMedication(), req.getDosage(), req.getInstructions(), req.getFrequency(),
+                req.getDurationDays(), req.getRoute(), req.getMedicationClass(), req.getTotalDoses(),
+                ic.serviceId());
 
         Map<String, Object> body = new HashMap<>();
         body.put("id", p.id().toString());

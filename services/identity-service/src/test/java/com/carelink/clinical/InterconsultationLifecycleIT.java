@@ -150,7 +150,8 @@ class InterconsultationLifecycleIT {
 
         Prescription p = issuePrescriptionUseCase.execute(
                 tenant, ic.patientId(), ic.clinicalEncounterId(), ic.id(), specialistId,
-                "Enoxaparina", "40 mg SC cada 24h", "Control anti-Xa a las 72h", "Urgencias");
+                "Enoxaparina", "40 mg SC cada 24h", "Control anti-Xa a las 72h",
+                "Cada 24 horas", 10, "SC", "Anticoagulantes", 10, "Urgencias");
 
         assertThat(p.clinicalEncounterId())
                 .as("FR-CLN-09: trazabilidad hasta el encounter raíz").isEqualTo(rootEncounterId);
