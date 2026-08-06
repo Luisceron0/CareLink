@@ -6,6 +6,7 @@ import com.carelink.clinical.domain.port.PatientRepository;
 import com.carelink.clinical.domain.value.BloodType;
 import com.carelink.clinical.domain.value.DocumentId;
 import com.carelink.clinical.domain.value.DocumentType;
+import com.carelink.clinical.domain.value.ServiceScope;
 import com.carelink.clinical.domain.value.Sex;
 import com.carelink.identity.domain.value.TenantSlug;
 import com.carelink.identity.infrastructure.persistence.PostgresIdentifiers;
@@ -57,8 +58,8 @@ public class JdbcPatientRepository implements PatientRepository {
 
         jdbcTemplate.update(
                 "INSERT INTO " + schema + ".patients " +
-                        "(id, full_name, document_type, document_number, date_of_birth, sex, blood_type, allergies, created_at) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        "(id, full_name, document_type, document_number, date_of_birth, sex, blood_type, allergies, service_id, created_at) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 patient.id(),
                 encryptionService.encrypt(patient.fullName(), slug),
                 patient.documentId().type().name(),
@@ -67,19 +68,23 @@ public class JdbcPatientRepository implements PatientRepository {
                 patient.sex().name(),
                 patient.bloodType().name(),
                 encryptionService.encrypt(serializeAllergies(patient.allergies()), slug),
+                patient.serviceId(),
                 patient.createdAt());
     }
 
     @Override
-    public Optional<Patient> findById(TenantSlug tenantSlug, UUID patientId) {
+    public Optional<Patient> findById(TenantSlug tenantSlug, UUID patientId, ServiceScope scope) {
         String schema = schemaOf(tenantSlug);
         String slug = tenantSlug.value();
 
-        List<Patient> results = jdbcTemplate.query(
-                "SELECT id, full_name, document_type, document_number, date_of_birth, sex, blood_type, allergies, created_at " +
-                        "FROM " + schema + ".patients WHERE id = ?",
-                rowMapper(slug),
-                patientId);
+        // AC-06b: el filtro por servicio va en el WHERE, no en un `if` sobre el
+        // resultado — así una fila de otro servicio nunca sale de la base, ni siquiera
+        // para descartarla en memoria (donde un `return` mal puesto la dejaría pasar).
+        String sql = "SELECT id, full_name, document_type, document_number, date_of_birth, sex, blood_type, allergies, service_id, created_at " +
+                "FROM " + schema + ".patients WHERE id = ?";
+        List<Patient> results = scope.unrestricted()
+                ? jdbcTemplate.query(sql, rowMapper(slug), patientId)
+                : jdbcTemplate.query(sql + " AND service_id = ?", rowMapper(slug), patientId, scope.serviceId());
         return results.stream().findFirst();
     }
 
@@ -94,6 +99,7 @@ public class JdbcPatientRepository implements PatientRepository {
                 Sex.valueOf(rs.getString("sex")),
                 BloodType.valueOf(rs.getString("blood_type")),
                 deserializeAllergies(decryptNullable(rs.getString("allergies"), tenantSlug)),
+                rs.getString("service_id"),
                 rs.getObject("created_at", OffsetDateTime.class));
     }
 

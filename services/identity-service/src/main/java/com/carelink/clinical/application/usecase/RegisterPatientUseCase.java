@@ -42,7 +42,8 @@ public class RegisterPatientUseCase {
      */
     @Auditable(action = "PATIENT_CREATE", tenantSlugExpression = "#tenantSlug.value()")
     public Patient execute(TenantSlug tenantSlug, String fullName, DocumentType documentType, String documentNumber,
-                            LocalDate dateOfBirth, Sex sex, BloodType bloodType, List<String> allergies) {
+                            LocalDate dateOfBirth, Sex sex, BloodType bloodType, List<String> allergies,
+                            String serviceId) {
         Patient patient = new Patient(
                 UUID.randomUUID(),
                 fullName,
@@ -51,6 +52,7 @@ public class RegisterPatientUseCase {
                 sex,
                 bloodType,
                 allergies,
+                serviceId,
                 OffsetDateTime.now());
         patientRepository.save(tenantSlug, patient);
         return patient;

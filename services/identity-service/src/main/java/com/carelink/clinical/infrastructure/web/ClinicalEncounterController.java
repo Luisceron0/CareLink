@@ -6,8 +6,7 @@ import com.carelink.clinical.application.usecase.SignEncounterUseCase;
 import com.carelink.clinical.application.usecase.UpdateEncounterUseCase;
 import com.carelink.clinical.domain.ClinicalEncounter;
 import com.carelink.clinical.domain.exception.EncounterAlreadySignedException;
-import com.carelink.identity.domain.Tenant;
-import com.carelink.identity.domain.port.TenantRepository;
+import com.carelink.clinical.domain.value.ServiceScope;
 import com.carelink.identity.domain.value.TenantSlug;
 import com.carelink.identity.infrastructure.security.AuthenticatedPrincipal;
 import org.springframework.http.HttpStatus;
@@ -38,18 +37,18 @@ public class ClinicalEncounterController {
     private final UpdateEncounterUseCase updateEncounterUseCase;
     private final SignEncounterUseCase signEncounterUseCase;
     private final GetEncounterUseCase getEncounterUseCase;
-    private final TenantRepository tenantRepository;
+    private final ClinicalRequestScope requestScope;
 
     public ClinicalEncounterController(RegisterEncounterUseCase registerEncounterUseCase,
                                         UpdateEncounterUseCase updateEncounterUseCase,
                                         SignEncounterUseCase signEncounterUseCase,
                                         GetEncounterUseCase getEncounterUseCase,
-                                        TenantRepository tenantRepository) {
+                                        ClinicalRequestScope requestScope) {
         this.registerEncounterUseCase = registerEncounterUseCase;
         this.updateEncounterUseCase = updateEncounterUseCase;
         this.signEncounterUseCase = signEncounterUseCase;
         this.getEncounterUseCase = getEncounterUseCase;
-        this.tenantRepository = tenantRepository;
+        this.requestScope = requestScope;
     }
 
     @PostMapping
@@ -58,7 +57,7 @@ public class ClinicalEncounterController {
         if (!PHYSICIAN_ROLE.equals(principal == null ? null : principal.role())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        Optional<TenantSlug> tenantSlug = resolveTenantSlug(principal);
+        Optional<TenantSlug> tenantSlug = requestScope.tenantSlug(principal);
         if (tenantSlug.isEmpty()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
@@ -66,7 +65,9 @@ public class ClinicalEncounterController {
         ClinicalEncounter encounter = registerEncounterUseCase.execute(
                 tenantSlug.get(), req.getPatientId(), principal.userId(),
                 req.getChiefComplaint(), req.getExamFindings(), req.getDiagnosisCie10(),
-                req.getTreatmentPlan(), req.getFollowUp());
+                req.getTreatmentPlan(), req.getFollowUp(),
+                // AC-06b: el encounter queda estampado con el servicio del médico.
+                principal.serviceId());
 
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(encounter));
     }
@@ -78,12 +79,21 @@ public class ClinicalEncounterController {
         if (!PHYSICIAN_ROLE.equals(principal == null ? null : principal.role())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        Optional<TenantSlug> tenantSlug = resolveTenantSlug(principal);
+        Optional<TenantSlug> tenantSlug = requestScope.tenantSlug(principal);
         if (tenantSlug.isEmpty()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
-        Optional<ClinicalEncounter> existing = getEncounterUseCase.execute(tenantSlug.get(), id);
+        Optional<ServiceScope> scope = requestScope.serviceScope(principal);
+        if (scope.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        // AC-06b: la lectura previa ya va filtrada por servicio, así que un encounter
+        // de otro servicio no se puede ni leer ni —por lo tanto— editar. El chequeo no
+        // se repite en el UPDATE porque no hay forma de llegar hasta él sin haber
+        // pasado por esta lectura.
+        Optional<ClinicalEncounter> existing = getEncounterUseCase.execute(tenantSlug.get(), id, scope.get());
         if (existing.isEmpty()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
@@ -92,7 +102,8 @@ public class ClinicalEncounterController {
                 id, existing.get().patientId(), existing.get().physicianUserId(),
                 req.getChiefComplaint(), req.getExamFindings(), req.getDiagnosisCie10(),
                 req.getTreatmentPlan(), req.getFollowUp(),
-                existing.get().createdAt(), existing.get().signedAt(), existing.get().signedByUserId());
+                existing.get().serviceId(), existing.get().createdAt(), existing.get().signedAt(),
+                existing.get().signedByUserId());
 
         try {
             updateEncounterUseCase.execute(tenantSlug.get(), updated);
@@ -114,8 +125,19 @@ public class ClinicalEncounterController {
         if (!PHYSICIAN_ROLE.equals(principal == null ? null : principal.role())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        Optional<TenantSlug> tenantSlug = resolveTenantSlug(principal);
+        Optional<TenantSlug> tenantSlug = requestScope.tenantSlug(principal);
         if (tenantSlug.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        Optional<ServiceScope> signScope = requestScope.serviceScope(principal);
+        if (signScope.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        // AC-06b: firmar es una mutación, así que pasa por la misma lectura filtrada
+        // por servicio antes de tocar nada — un médico de otro servicio no puede
+        // firmar este encounter, y tampoco distingue "no existe" de "no es tuyo".
+        if (getEncounterUseCase.execute(tenantSlug.get(), id, signScope.get()).isEmpty()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
@@ -132,21 +154,19 @@ public class ClinicalEncounterController {
     @GetMapping("/{id}")
     public ResponseEntity<?> get(@AuthenticationPrincipal AuthenticatedPrincipal principal,
                                   @PathVariable UUID id) {
-        Optional<TenantSlug> tenantSlug = resolveTenantSlug(principal);
+        Optional<TenantSlug> tenantSlug = requestScope.tenantSlug(principal);
         if (tenantSlug.isEmpty()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
-        return getEncounterUseCase.execute(tenantSlug.get(), id)
+        Optional<ServiceScope> readScope = requestScope.serviceScope(principal);
+        if (readScope.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        return getEncounterUseCase.execute(tenantSlug.get(), id, readScope.get())
                 .map(encounter -> ResponseEntity.ok(toResponse(encounter)))
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.FORBIDDEN).build());
-    }
-
-    private Optional<TenantSlug> resolveTenantSlug(AuthenticatedPrincipal principal) {
-        if (principal == null || principal.tenantId() == null) {
-            return Optional.empty();
-        }
-        return tenantRepository.findById(principal.tenantId()).map(Tenant::slug);
     }
 
     private Map<String, Object> toResponse(ClinicalEncounter encounter) {

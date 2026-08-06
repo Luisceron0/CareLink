@@ -802,7 +802,7 @@ the task-level breakdown; the sub-fases themselves are normative here:
 |---|---|---|---|
 | 0 | Repo hygiene: remove `api-gateway-identity`, purge `.db`, single SRS | — | Done, except the `test_identity.db` git-history purge, explicitly reserved for the author's own call |
 | 1 | `DemoModeGuard` + Audit Log (append-only, AOP-intercepted) | Fase 0 | Done |
-| 2 | Identity gaps closed + Patient + ClinicalEncounter (signed, immutable) | Fase 1 | Done except AC-06b (needs `service_id`-based *enforcement*, not just the column — see §5.1 FR-ID-02). FR-ID-02 (user invitation, role + `service_id` assignment, deactivation) built after being found missing during live verification of Sub-fase 2 |
+| 2 | Identity gaps closed + Patient + ClinicalEncounter (signed, immutable) | Fase 1 | Done, including AC-06b. FR-ID-02 (user invitation, role + `service_id` assignment, deactivation) built after being found missing during live verification of this sub-fase |
 | 3 | Admissions + Triage | Fase 2 | Done |
 | 4 | Health Diary (NANDA/NIC/NOC) + Knowledge Engine (k-anonymity) | Fase 2 | Not started |
 | 5 | Interconsultations (with per-request revocation check) | Fase 2, 4 | Not started |
@@ -992,7 +992,7 @@ their CI gate (blocking, not `|| true`) ships in this same sub-fase — see `ci.
 |---|---|---|
 | AC-05 | Tenant slug injection rejected at the sink | Unit test, malicious slug input |
 | AC-06 | Cross-tenant read → 403 | Integration test |
-| AC-06b | Cross-`service_id` read within tenant → 403 | Integration test, 100% path coverage |
+| AC-06b | Cross-`service_id` read within tenant → 403 | Integration test, all three clinical resources + live HTTP |
 | AC-07 | 1 PHI read → 1 audit log entry | Integration test |
 | AC-08 | Signed encounter modification → 409 | Integration test |
 | AC-09 | PHI columns unreadable via direct SELECT | Integration test |
@@ -1032,12 +1032,37 @@ both at the repository level (`PatientLifecycleIT`) and over real HTTP against a
 compose stack: a second tenant's valid JWT reading the first tenant's patient got 403.
 A cross-tenant attempt and a nonexistent ID return the identical response (empty
 `Optional` → 403) — deliberately indistinguishable, so a 403 never confirms a resource
-exists in someone else's tenant. `service_id` now exists on `User` (FR-ID-02, §5.1),
-but AC-06b needs *enforcement* — every clinical endpoint checking the acting user's
-`service_id` against the resource's, the same way tenant isolation is checked today —
-which nothing does yet. Still open, along with re-verifying AC-06 holds as more
-clinical endpoints are added (one endpoint passing doesn't mean the pattern is applied
-everywhere yet).
+exists in someone else's tenant. AC-06 now holds across all three clinical resources
+(Patient, ClinicalEncounter, Admission), not just the one it was first demonstrated on.
+
+AC-06b — **Pass**. The acting user's `service_id` travels in the JWT (`service_id`
+claim, set at login from `users.service_id`) and every clinical resource carries the
+`service_id` it was created under. Reads and mutations filter on it **in the SQL
+`WHERE` clause**, not by inspecting the row after fetching it — a row from another
+service never leaves the database, so there is no in-memory check a later refactor
+could drop. For the one mutation that isn't preceded by a read
+(`linkClinicalEncounter`), the filter is in the `UPDATE ... WHERE` itself, so there is
+no window between "checked it's mine" and "modified it".
+
+The scope is passed as a `ServiceScope` value object rather than a nullable `String`
+for a specific reason: with a `String`, `null` can only mean "no filter", so any path
+that forgets to set it **fails open** — returning the whole tenant instead of nothing.
+`ServiceScope` makes "no filter" something you have to ask for by name
+(`ServiceScope.allServices()`), so forgetting is a compile error rather than a silent
+leak. Same reasoning that made `SchemaProvisioner` take `TenantSlug` instead of
+`String` (AC-05). Correspondingly, a non-exempt role that arrives with no `service_id`
+at all resolves to **no access**, not unrestricted access — a badly provisioned user
+sees nothing rather than everything.
+
+`TENANT_ADMIN` and `AUDITOR` are exempt (§4 gives them tenant-wide and audit-only
+scope respectively). Evidenced by `ServiceScopeIsolationIT` — all three resources, each
+with the contrapositive (the same resource read under the *correct* service does come
+back, so an empty result proves something about the service and not that reads are
+broken) — and live over HTTP against `docker compose`: two `PHYSICIAN` users in
+`Urgencias` and `Consulta Externa` of the *same* tenant, both created through the real
+FR-ID-02 invite flow. Reading the other service's patient → 403; own service → 200;
+`TENANT_ADMIN` → 200. Same result for an encounter, including `POST /sign` (a
+mutation) → 403 cross-service, 200 within service.
 
 AC-07 — **Pass**. `GetPatientUseCase.execute` carries `@Auditable`; reading a patient
 produces exactly one `audit_log` row (`PATIENT_READ`, with `patient_id`) per read,

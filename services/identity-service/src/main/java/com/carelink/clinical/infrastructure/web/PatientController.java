@@ -5,9 +5,8 @@ import com.carelink.clinical.application.usecase.RegisterPatientUseCase;
 import com.carelink.clinical.domain.Patient;
 import com.carelink.clinical.domain.value.BloodType;
 import com.carelink.clinical.domain.value.DocumentType;
+import com.carelink.clinical.domain.value.ServiceScope;
 import com.carelink.clinical.domain.value.Sex;
-import com.carelink.identity.domain.Tenant;
-import com.carelink.identity.domain.port.TenantRepository;
 import com.carelink.identity.infrastructure.security.AuthenticatedPrincipal;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -34,20 +33,20 @@ public class PatientController {
 
     private final RegisterPatientUseCase registerPatientUseCase;
     private final GetPatientUseCase getPatientUseCase;
-    private final TenantRepository tenantRepository;
+    private final ClinicalRequestScope requestScope;
 
     public PatientController(RegisterPatientUseCase registerPatientUseCase,
                               GetPatientUseCase getPatientUseCase,
-                              TenantRepository tenantRepository) {
+                              ClinicalRequestScope requestScope) {
         this.registerPatientUseCase = registerPatientUseCase;
         this.getPatientUseCase = getPatientUseCase;
-        this.tenantRepository = tenantRepository;
+        this.requestScope = requestScope;
     }
 
     @PostMapping
     public ResponseEntity<?> register(@AuthenticationPrincipal AuthenticatedPrincipal principal,
                                        @RequestBody RegisterPatientRequest req) {
-        Optional<com.carelink.identity.domain.value.TenantSlug> tenantSlug = resolveTenantSlug(principal);
+        Optional<com.carelink.identity.domain.value.TenantSlug> tenantSlug = requestScope.tenantSlug(principal);
         if (tenantSlug.isEmpty()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
@@ -60,7 +59,10 @@ public class PatientController {
                 LocalDate.parse(req.getDateOfBirth()),
                 Sex.valueOf(req.getSex()),
                 BloodType.valueOf(req.getBloodType()),
-                req.getAllergies());
+                req.getAllergies(),
+                // AC-06b: el paciente queda estampado con el servicio de quien lo
+                // registra. Un rol exento (TENANT_ADMIN) lo crea sin servicio.
+                principal.serviceId());
 
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(patient));
     }
@@ -68,7 +70,7 @@ public class PatientController {
     @GetMapping("/{id}")
     public ResponseEntity<?> get(@AuthenticationPrincipal AuthenticatedPrincipal principal,
                                   @PathVariable UUID id) {
-        Optional<com.carelink.identity.domain.value.TenantSlug> tenantSlug = resolveTenantSlug(principal);
+        Optional<com.carelink.identity.domain.value.TenantSlug> tenantSlug = requestScope.tenantSlug(principal);
         if (tenantSlug.isEmpty()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
@@ -79,16 +81,20 @@ public class PatientController {
         // responden igual. Que un intento cross-tenant no se distinga de un id
         // inexistente es la propiedad de seguridad, no un detalle de implementación:
         // lo contrario confirmaría a un atacante que el recurso existe en otro tenant.
-        return getPatientUseCase.execute(tenantSlug.get(), id)
+        //
+        // AC-06b agrega la misma propiedad DENTRO del tenant: si el paciente existe
+        // pero pertenece a otro servicio, la consulta tampoco lo devuelve (el filtro
+        // va en el WHERE, ver JdbcPatientRepository), así que se responde igual que un
+        // id inexistente. Un PHYSICIAN de Urgencias no puede confirmar la existencia
+        // de un paciente de Consulta Externa.
+        Optional<ServiceScope> scope = requestScope.serviceScope(principal);
+        if (scope.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        return getPatientUseCase.execute(tenantSlug.get(), id, scope.get())
                 .map(patient -> ResponseEntity.ok(toResponse(patient)))
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.FORBIDDEN).build());
-    }
-
-    private Optional<com.carelink.identity.domain.value.TenantSlug> resolveTenantSlug(AuthenticatedPrincipal principal) {
-        if (principal == null || principal.tenantId() == null) {
-            return Optional.empty();
-        }
-        return tenantRepository.findById(principal.tenantId()).map(Tenant::slug);
     }
 
     private Map<String, Object> toResponse(Patient patient) {

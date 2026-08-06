@@ -2,6 +2,7 @@ package com.carelink.clinical.application.usecase;
 
 import com.carelink.clinical.domain.Patient;
 import com.carelink.clinical.domain.port.PatientRepository;
+import com.carelink.clinical.domain.value.ServiceScope;
 import com.carelink.identity.domain.value.TenantSlug;
 import com.carelink.identity.infrastructure.audit.Auditable;
 import org.springframework.stereotype.Component;
@@ -32,7 +33,7 @@ public class GetPatientUseCase {
     }
 
     @Auditable(action = "PATIENT_READ", tenantSlugExpression = "#tenantSlug.value()", patientIdExpression = "#patientId")
-    public Optional<Patient> execute(TenantSlug tenantSlug, UUID patientId) {
-        return patientRepository.findById(tenantSlug, patientId);
+    public Optional<Patient> execute(TenantSlug tenantSlug, UUID patientId, ServiceScope scope) {
+        return patientRepository.findById(tenantSlug, patientId, scope);
     }
 }

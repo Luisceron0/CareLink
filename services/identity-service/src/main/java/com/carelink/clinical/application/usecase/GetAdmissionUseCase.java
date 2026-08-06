@@ -2,6 +2,7 @@ package com.carelink.clinical.application.usecase;
 
 import com.carelink.clinical.domain.Admission;
 import com.carelink.clinical.domain.port.AdmissionRepository;
+import com.carelink.clinical.domain.value.ServiceScope;
 import com.carelink.identity.domain.value.TenantSlug;
 import com.carelink.identity.infrastructure.audit.Auditable;
 import org.springframework.stereotype.Component;
@@ -19,7 +20,7 @@ public class GetAdmissionUseCase {
     }
 
     @Auditable(action = "ADMISSION_READ", tenantSlugExpression = "#tenantSlug.value()")
-    public Optional<Admission> execute(TenantSlug tenantSlug, UUID admissionId) {
-        return admissionRepository.findById(tenantSlug, admissionId);
+    public Optional<Admission> execute(TenantSlug tenantSlug, UUID admissionId, ServiceScope scope) {
+        return admissionRepository.findById(tenantSlug, admissionId, scope);
     }
 }

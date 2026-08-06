@@ -97,7 +97,7 @@ public class AuthController {
         loginRateLimiter.recordSuccess(clientIp);
 
         User user = userRepository.findByEmail(req.getEmail()).orElseThrow(() -> new RuntimeException("User not found after login"));
-        String access = jwtService.generateAccessToken(user.id(), user.tenantId(), user.role());
+        String access = jwtService.generateAccessToken(user.id(), user.tenantId(), user.role(), user.serviceId());
 
         long maxAge = Long.parseLong(System.getenv().getOrDefault("REFRESH_TOKEN_TTL_SECONDS", String.valueOf(7 * 24 * 3600)));
         ResponseCookie cookie = ResponseCookie.from("refresh_token", session.refreshToken())
@@ -144,7 +144,7 @@ public class AuthController {
 
         Session session = refreshTokenUseCase.execute(token);
         User user = userRepository.findById(session.userId()).orElseThrow(() -> new RuntimeException("User not found for session"));
-        String access = jwtService.generateAccessToken(user.id(), user.tenantId(), user.role());
+        String access = jwtService.generateAccessToken(user.id(), user.tenantId(), user.role(), user.serviceId());
 
         long maxAge = Long.parseLong(System.getenv().getOrDefault("REFRESH_TOKEN_TTL_SECONDS", String.valueOf(7 * 24 * 3600)));
         ResponseCookie cookie = ResponseCookie.from("refresh_token", session.refreshToken())

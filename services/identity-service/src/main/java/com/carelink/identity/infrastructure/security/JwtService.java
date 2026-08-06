@@ -25,6 +25,11 @@ public class JwtService {
     }
 
     public String generateAccessToken(UUID userId, UUID tenantId, String role) {
+        return generateAccessToken(userId, tenantId, role, null);
+    }
+
+    /** {@code serviceId} en el token: AC-06b lo necesita en cada request sin volver a leer la tabla `users`. */
+    public String generateAccessToken(UUID userId, UUID tenantId, String role, String serviceId) {
         try {
             RSAPrivateKey signingKey = keyProvider.getPrivateKey().orElseThrow(() -> new RuntimeException("No private key available for signing"));
             String kid = keyProvider.getDefaultKid().orElse(null);
@@ -40,6 +45,7 @@ public class JwtService {
                     .claim("role", role);
 
             if (tenantId != null) claims.claim("tenant_id", tenantId.toString());
+            if (serviceId != null) claims.claim("service_id", serviceId);
 
             JWSHeader.Builder headerBuilder = new JWSHeader.Builder(JWSAlgorithm.RS256).type(JOSEObjectType.JWT);
             if (kid != null) headerBuilder.keyID(kid);

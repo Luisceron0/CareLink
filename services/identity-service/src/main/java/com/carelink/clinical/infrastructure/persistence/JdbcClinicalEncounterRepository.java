@@ -4,6 +4,7 @@ import com.carelink.clinical.domain.ClinicalEncounter;
 import com.carelink.clinical.domain.exception.EncounterAlreadySignedException;
 import com.carelink.clinical.domain.port.ClinicalEncounterRepository;
 import com.carelink.clinical.domain.port.EncryptionService;
+import com.carelink.clinical.domain.value.ServiceScope;
 import com.carelink.identity.domain.value.TenantSlug;
 import com.carelink.identity.infrastructure.persistence.PostgresIdentifiers;
 import org.springframework.dao.DataAccessException;
@@ -46,8 +47,8 @@ public class JdbcClinicalEncounterRepository implements ClinicalEncounterReposit
 
         jdbcTemplate.update(
                 "INSERT INTO " + schema + ".clinical_encounters " +
-                        "(id, patient_id, physician_user_id, chief_complaint, exam_findings, diagnosis_cie10, treatment_plan, follow_up, created_at) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        "(id, patient_id, physician_user_id, chief_complaint, exam_findings, diagnosis_cie10, treatment_plan, follow_up, service_id, created_at) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 encounter.id(),
                 encounter.patientId(),
                 encounter.physicianUserId(),
@@ -56,20 +57,23 @@ public class JdbcClinicalEncounterRepository implements ClinicalEncounterReposit
                 encounter.diagnosisCie10(),
                 encryptNullable(encounter.treatmentPlan(), slug),
                 encryptNullable(encounter.followUp(), slug),
+                encounter.serviceId(),
                 encounter.createdAt());
     }
 
     @Override
-    public Optional<ClinicalEncounter> findById(TenantSlug tenantSlug, UUID encounterId) {
+    public Optional<ClinicalEncounter> findById(TenantSlug tenantSlug, UUID encounterId, ServiceScope scope) {
         String schema = schemaOf(tenantSlug);
         String slug = tenantSlug.value();
 
-        List<ClinicalEncounter> results = jdbcTemplate.query(
-                "SELECT id, patient_id, physician_user_id, chief_complaint, exam_findings, diagnosis_cie10, " +
-                        "treatment_plan, follow_up, created_at, signed_at, signed_by_user_id " +
-                        "FROM " + schema + ".clinical_encounters WHERE id = ?",
-                rowMapper(slug),
-                encounterId);
+        // AC-06b: filtro en el WHERE, no sobre el resultado — mismo criterio que
+        // JdbcPatientRepository.
+        String sql = "SELECT id, patient_id, physician_user_id, chief_complaint, exam_findings, diagnosis_cie10, " +
+                "treatment_plan, follow_up, service_id, created_at, signed_at, signed_by_user_id " +
+                "FROM " + schema + ".clinical_encounters WHERE id = ?";
+        List<ClinicalEncounter> results = scope.unrestricted()
+                ? jdbcTemplate.query(sql, rowMapper(slug), encounterId)
+                : jdbcTemplate.query(sql + " AND service_id = ?", rowMapper(slug), encounterId, scope.serviceId());
         return results.stream().findFirst();
     }
 
@@ -142,6 +146,7 @@ public class JdbcClinicalEncounterRepository implements ClinicalEncounterReposit
                 rs.getString("diagnosis_cie10"),
                 decryptNullable(rs.getString("treatment_plan"), tenantSlug),
                 decryptNullable(rs.getString("follow_up"), tenantSlug),
+                rs.getString("service_id"),
                 rs.getObject("created_at", OffsetDateTime.class),
                 rs.getObject("signed_at", OffsetDateTime.class),
                 rs.getObject("signed_by_user_id", UUID.class));

@@ -329,3 +329,27 @@ haciéndolo así cuando aparezca la próxima decisión de alcance no cubierta (c
 identificado: si Sub-fase 3+ necesita más roles gateados, la misma pregunta va a volver
 a aparecer).
 **Tags:** #alcance #proceso
+
+## [2026-08-05] — `mvn test-compile` sin `clean` dio BUILD SUCCESS con clases obsoletas, sobre código que no compilaba
+**Contexto:** al implementar AC-06b se cambiaron las firmas de siete casos de uso
+(agregar `ServiceScope`) y de tres records de dominio (agregar `serviceId`). Después de
+tocar todo eso, `mvn -q test-compile` devolvió BUILD SUCCESS.
+**Error:** era falso. Los tests seguían llamando a las firmas viejas —
+`getPatientUseCase.execute(tenantSlug, id)` con dos argumentos donde ahora hacían falta
+tres— y no compilaban. El compilador incremental de Maven comparó timestamps de
+`.java` contra `.class` y decidió que no hacía falta recompilar los tests, así que
+validó contra las clases YA COMPILADAS de la corrida anterior, no contra el código
+fuente nuevo. `mvn clean test-compile` destapó 22 errores de compilación de golpe.
+**Cómo se detectó:** por desconfianza, no por una falla. El BUILD SUCCESS era
+sospechoso porque un `grep` sobre `src/test` mostraba llamadas con la cantidad de
+argumentos vieja — dos hechos que no podían ser ciertos a la vez. Sin ese chequeo, el
+siguiente paso habría sido correr los tests, que habrían corrido los `.class` viejos
+contra el `main` nuevo o fallado de una forma mucho más confusa.
+**Regla para el futuro:** después de un cambio de FIRMA que cruza el límite
+main/test (no un cambio de cuerpo de método), `mvn clean` no es opcional — el
+compilador incremental razona por timestamps, no por compatibilidad de API, y un
+BUILD SUCCESS suyo no significa "el código fuente actual compila". Es la misma familia
+de problema que el resto de esta sesión: una señal verde que no verifica lo que uno
+supone que verifica (los tests que nunca corrieron por falta de Failsafe, el suite en
+verde sobre una app que no arrancaba).
+**Tags:** #build #testing

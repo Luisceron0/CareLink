@@ -3,6 +3,7 @@ package com.carelink.clinical.infrastructure.persistence;
 import com.carelink.clinical.domain.Admission;
 import com.carelink.clinical.domain.port.AdmissionRepository;
 import com.carelink.clinical.domain.value.AdmissionType;
+import com.carelink.clinical.domain.value.ServiceScope;
 import com.carelink.clinical.domain.value.TriagePriority;
 import com.carelink.identity.domain.value.TenantSlug;
 import com.carelink.identity.infrastructure.persistence.PostgresIdentifiers;
@@ -36,8 +37,8 @@ public class JdbcAdmissionRepository implements AdmissionRepository {
         String schema = schemaOf(tenantSlug);
         jdbcTemplate.update(
                 "INSERT INTO " + schema + ".admissions " +
-                        "(id, patient_id, admission_type, triage_priority, admitted_by_user_id, admitted_at, clinical_encounter_id, created_at) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        "(id, patient_id, admission_type, triage_priority, admitted_by_user_id, admitted_at, clinical_encounter_id, service_id, created_at) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 admission.id(),
                 admission.patientId(),
                 admission.admissionType().name(),
@@ -45,26 +46,34 @@ public class JdbcAdmissionRepository implements AdmissionRepository {
                 admission.admittedByUserId(),
                 admission.admittedAt(),
                 admission.clinicalEncounterId(),
+                admission.serviceId(),
                 admission.createdAt());
     }
 
     @Override
-    public Optional<Admission> findById(TenantSlug tenantSlug, UUID admissionId) {
+    public Optional<Admission> findById(TenantSlug tenantSlug, UUID admissionId, ServiceScope scope) {
         String schema = schemaOf(tenantSlug);
-        List<Admission> results = jdbcTemplate.query(
-                "SELECT id, patient_id, admission_type, triage_priority, admitted_by_user_id, admitted_at, clinical_encounter_id, created_at " +
-                        "FROM " + schema + ".admissions WHERE id = ?",
-                rowMapper(),
-                admissionId);
+        // AC-06b: filtro en el WHERE, mismo criterio que el resto de los repositorios.
+        String sql = "SELECT id, patient_id, admission_type, triage_priority, admitted_by_user_id, admitted_at, clinical_encounter_id, service_id, created_at " +
+                "FROM " + schema + ".admissions WHERE id = ?";
+        List<Admission> results = scope.unrestricted()
+                ? jdbcTemplate.query(sql, rowMapper(), admissionId)
+                : jdbcTemplate.query(sql + " AND service_id = ?", rowMapper(), admissionId, scope.serviceId());
         return results.stream().findFirst();
     }
 
     @Override
-    public boolean linkClinicalEncounter(TenantSlug tenantSlug, UUID admissionId, UUID clinicalEncounterId) {
+    public boolean linkClinicalEncounter(TenantSlug tenantSlug, UUID admissionId, UUID clinicalEncounterId,
+                                          ServiceScope scope) {
         String schema = schemaOf(tenantSlug);
-        int rows = jdbcTemplate.update(
-                "UPDATE " + schema + ".admissions SET clinical_encounter_id = ? WHERE id = ?",
-                clinicalEncounterId, admissionId);
+        // AC-06b sobre una MUTACIÓN: el filtro por servicio va en el WHERE del UPDATE,
+        // no en una lectura previa seguida de un update sin filtrar — así no hay
+        // ventana entre "verifiqué que es mío" y "lo modifico", y 0 filas afectadas
+        // cubre por igual "no existe" y "no es de tu servicio".
+        String sql = "UPDATE " + schema + ".admissions SET clinical_encounter_id = ? WHERE id = ?";
+        int rows = scope.unrestricted()
+                ? jdbcTemplate.update(sql, clinicalEncounterId, admissionId)
+                : jdbcTemplate.update(sql + " AND service_id = ?", clinicalEncounterId, admissionId, scope.serviceId());
         return rows > 0;
     }
 
@@ -79,6 +88,7 @@ public class JdbcAdmissionRepository implements AdmissionRepository {
                     rs.getObject("admitted_by_user_id", UUID.class),
                     rs.getObject("admitted_at", OffsetDateTime.class),
                     rs.getObject("clinical_encounter_id", UUID.class),
+                    rs.getString("service_id"),
                     rs.getObject("created_at", OffsetDateTime.class));
         };
     }
