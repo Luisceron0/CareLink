@@ -341,3 +341,91 @@ CREATE INDEX idx_prescriptions_encounter ON prescriptions (clinical_encounter_id
 GRANT SELECT, INSERT, UPDATE ON interconsultation_requests TO {{app_role}};
 GRANT SELECT, INSERT ON interconsultation_responses TO {{app_role}};
 GRANT SELECT, INSERT ON prescriptions TO {{app_role}};
+
+-- ============================================================================
+-- Sub-fase 6 — Laboratorio (FR-CLN-11) y Farmacia (FR-CLN-12).
+-- ============================================================================
+
+-- LabOrder / LabResult. `critical_value` es un BOOLEAN explícito y no algo derivado
+-- de comparar el resultado contra un rango: los rangos de referencia dependen del
+-- método, el equipo y la población, y el laboratorio que emite el resultado es quien
+-- sabe si ESE valor es crítico. Derivarlo acá sería inventar un criterio clínico.
+CREATE TABLE lab_orders (
+    id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    patient_id             UUID        NOT NULL,
+    clinical_encounter_id  UUID        NOT NULL,
+    ordering_physician_id  UUID        NOT NULL,
+    test_code              TEXT        NOT NULL,
+    test_name              TEXT        NOT NULL,
+    ordered_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    service_id             TEXT,                  -- AC-06b
+    -- Resultado, NULL hasta que el laboratorio lo carga. Mismo criterio de fusión que
+    -- InterventionOutcome: uno a uno, siempre leídos juntos, y separar no aporta nada
+    -- salvo un JOIN en cada lectura.
+    result_value           TEXT,                  -- cifrado
+    result_units           TEXT,
+    critical_value         BOOLEAN,
+    resulted_by_user_id    UUID,
+    resulted_at            TIMESTAMPTZ
+);
+
+CREATE INDEX idx_lab_orders_patient ON lab_orders (patient_id);
+CREATE INDEX idx_lab_orders_encounter ON lab_orders (clinical_encounter_id);
+-- Índice parcial: la consulta que importa es "resultados críticos pendientes de que
+-- el médico solicitante los vea", no "todos los resultados".
+CREATE INDEX idx_lab_orders_critical ON lab_orders (ordering_physician_id, resulted_at)
+    WHERE critical_value = TRUE;
+
+-- Notificación in-app de valor crítico (FR-CLN-11). §16.4 deja fuera email/SMS en este
+-- milestone, así que "notificar" acá es una fila que el médico solicitante consulta —
+-- no un side effect que se pierde si nadie estaba mirando.
+--
+-- `acknowledged_at` NULL = todavía no la vio. Es lo que hace que la notificación sea
+-- una obligación pendiente y no un mensaje que pasó y se fue.
+CREATE TABLE critical_value_notifications (
+    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    lab_order_id          UUID        NOT NULL REFERENCES lab_orders(id) ON DELETE RESTRICT,
+    patient_id            UUID        NOT NULL,
+    notify_user_id        UUID        NOT NULL,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    acknowledged_at       TIMESTAMPTZ,
+    service_id            TEXT
+);
+
+CREATE INDEX idx_critical_notifications_pending ON critical_value_notifications (notify_user_id)
+    WHERE acknowledged_at IS NULL;
+
+-- DispensationRecord (FR-CLN-12). Lo registra el PHARMACIST contra una prescripción
+-- existente. `doses_dispensed` alimenta el índice de adherencia.
+CREATE TABLE dispensation_records (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    prescription_id     UUID        NOT NULL REFERENCES prescriptions(id) ON DELETE RESTRICT,
+    patient_id          UUID        NOT NULL,
+    pharmacist_user_id  UUID        NOT NULL,
+    doses_dispensed     INTEGER     NOT NULL,
+    dispensed_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    service_id          TEXT,
+
+    CONSTRAINT dispensation_doses_positive CHECK (doses_dispensed > 0)
+);
+
+CREATE INDEX idx_dispensation_prescription ON dispensation_records (prescription_id);
+CREATE INDEX idx_dispensation_patient ON dispensation_records (patient_id);
+
+-- Columnas que FR-CLN-12 pide sobre la prescripción y Sub-fase 5 no necesitaba
+-- (allí alcanzaba con medicación/dosis/instrucciones para demostrar FR-CLN-09).
+-- `medication_class` en claro: es lo que permite detectar el conflicto de "misma clase
+-- activa" en SQL sin descifrar cada prescripción del paciente. Es un dato de catálogo
+-- farmacológico, no un identificador — mismo criterio que diagnosis_cie10.
+ALTER TABLE prescriptions
+    ADD COLUMN frequency        TEXT,   -- cifrado
+    ADD COLUMN duration_days    INTEGER,
+    ADD COLUMN route            TEXT,
+    ADD COLUMN medication_class TEXT,
+    ADD COLUMN total_doses      INTEGER;
+
+CREATE INDEX idx_prescriptions_class ON prescriptions (patient_id, medication_class);
+
+GRANT SELECT, INSERT, UPDATE ON lab_orders TO {{app_role}};
+GRANT SELECT, INSERT, UPDATE ON critical_value_notifications TO {{app_role}};
+GRANT SELECT, INSERT ON dispensation_records TO {{app_role}};

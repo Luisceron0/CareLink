@@ -18,6 +18,19 @@ public record Prescription(
         String medication,
         String dosage,
         String instructions,
+        /** FR-CLN-12: frecuencia, duración y vía. `frequency` es texto libre — cifrado. */
+        String frequency,
+        Integer durationDays,
+        String route,
+        /**
+         * Clase farmacológica, EN CLARO: es lo que permite detectar el conflicto de
+         * "misma clase activa" con una consulta en vez de descifrar cada prescripción
+         * del paciente. Dato de catálogo, no identificador — mismo criterio que
+         * `diagnosis_cie10`.
+         */
+        String medicationClass,
+        /** Total de dosis prescritas. Denominador del índice de adherencia; opcional. */
+        Integer totalDoses,
         OffsetDateTime prescribedAt,
         String serviceId
 ) {

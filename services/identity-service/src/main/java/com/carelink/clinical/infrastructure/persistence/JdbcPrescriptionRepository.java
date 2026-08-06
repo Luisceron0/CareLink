@@ -34,11 +34,14 @@ public class JdbcPrescriptionRepository implements PrescriptionRepository {
         jdbcTemplate.update(
                 "INSERT INTO " + schema + ".prescriptions " +
                         "(id, patient_id, clinical_encounter_id, interconsultation_id, prescriber_user_id, " +
-                        "medication, dosage, instructions, prescribed_at, service_id) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        "medication, dosage, instructions, frequency, duration_days, route, medication_class, " +
+                        "total_doses, prescribed_at, service_id) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 p.id(), p.patientId(), p.clinicalEncounterId(), p.interconsultationId(), p.prescriberUserId(),
                 encryptionService.encrypt(p.medication(), slug), encryptNullable(p.dosage(), slug),
-                encryptNullable(p.instructions(), slug), p.prescribedAt(), p.serviceId());
+                encryptNullable(p.instructions(), slug), encryptNullable(p.frequency(), slug),
+                p.durationDays(), p.route(), p.medicationClass(), p.totalDoses(),
+                p.prescribedAt(), p.serviceId());
     }
 
     @Override
@@ -65,7 +68,8 @@ public class JdbcPrescriptionRepository implements PrescriptionRepository {
 
     private String selectColumns() {
         return "SELECT id, patient_id, clinical_encounter_id, interconsultation_id, prescriber_user_id, " +
-                "medication, dosage, instructions, prescribed_at, service_id";
+                "medication, dosage, instructions, frequency, duration_days, route, medication_class, " +
+                "total_doses, prescribed_at, service_id";
     }
 
     private RowMapper<Prescription> rowMapper(String slug) {
@@ -77,6 +81,9 @@ public class JdbcPrescriptionRepository implements PrescriptionRepository {
                 encryptionService.decrypt(rs.getString("medication"), slug),
                 decryptNullable(rs.getString("dosage"), slug),
                 decryptNullable(rs.getString("instructions"), slug),
+                decryptNullable(rs.getString("frequency"), slug),
+                (Integer) rs.getObject("duration_days"), rs.getString("route"),
+                rs.getString("medication_class"), (Integer) rs.getObject("total_doses"),
                 rs.getObject("prescribed_at", OffsetDateTime.class), rs.getString("service_id"));
     }
 
