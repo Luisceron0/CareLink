@@ -486,7 +486,36 @@ that could be misread as "no prior cases."
 
 ### 5.7 Interconsultations
 
-> **Status: TO BE BUILT — Milestone 1, Sub-fase 5.**
+> **Status: BUILT.** `POST /api/v1/interconsultations`, `GET /{id}`, `POST /{id}/response`,
+> `POST /{id}/prescriptions`, `POST /{id}/close`.
+>
+> **How FR-CLN-10 is actually enforced.** The specialist's access is not stored
+> anywhere — there is no permissions table, no "granted" row, no cached decision. Every
+> request re-runs one query: *does an OPEN interconsultation exist for this specialist
+> and this patient right now?* Closing the interconsultation is a single `UPDATE status`,
+> and the next evaluation of that same query returns false. There is no second
+> revocation step anyone could forget, because the thing that would need revoking was
+> never persisted. That is the difference between this design and a permissions table:
+> a stored permission is state you have to remember to revoke, and "forgot to revoke" is
+> the bug class FR-CLN-10 exists to make *impossible*, not to detect.
+>
+> Access is scoped to the **patient** of that interconsultation, not to the specialist
+> generally — an open interconsultation for patient A grants nothing for patient B.
+>
+> Note the deliberate interaction with AC-06b: the specialist is normally in a *different*
+> service than the requesting physician (that is the point of an interconsultation), so
+> service-scope filtering would deny exactly the access the interconsultation just
+> granted. For `SPECIALIST`, the open-interconsultation check replaces the service filter
+> — a **narrower** grant, not a wider one: it is per-patient and expires on close, where
+> the service filter is standing and department-wide. Every other role keeps the ordinary
+> AC-06b filtering.
+>
+> FR-CLN-09: a prescription issued through a response takes its `clinical_encounter_id`
+> **from the interconsultation, never from the request body**, so the client cannot hang
+> it off a different encounter. `clinical_encounter_id` is `NOT NULL` — a prescription
+> without an originating encounter is not traceable, and traceability is the whole
+> requirement. `Prescription` lands here rather than in Sub-fase 6 because FR-CLN-09
+> needs it; Sub-fase 6 adds dispensation on top.
 
 #### FR-CLN-08 — Request and Response
 A `PHYSICIAN` requests a `SPECIALIST` opinion on a patient. The specialist can only read
@@ -869,7 +898,7 @@ the task-level breakdown; the sub-fases themselves are normative here:
 | 2 | Identity gaps closed + Patient + ClinicalEncounter (signed, immutable) | Fase 1 | Done, including AC-06b. FR-ID-02 (user invitation, role + `service_id` assignment, deactivation) built after being found missing during live verification of this sub-fase |
 | 3 | Admissions + Triage | Fase 2 | Done |
 | 4 | Health Diary (NANDA/NIC/NOC) + Knowledge Engine (k-anonymity) | Fase 2 | Done |
-| 5 | Interconsultations (with per-request revocation check) | Fase 2, 4 | Not started |
+| 5 | Interconsultations (with per-request revocation check) | Fase 2, 4 | Done |
 | 6 | Labs + Pharmacy | Fase 2 | Not started |
 | 7 | Frontend (React + Vite, role-based SPA) covering Fases 1–6 | Fase 6 | Not started |
 | 8 | Security verification end-to-end: sqlmap, semgrep rule extension, CI gates blocking | Fase 7 | Not started |
@@ -1164,7 +1193,20 @@ fifth, `{"suppressed": false, "results": [{"distinctPatients": 5, …}]}`; and a
 unrelated diagnosis returns `{"suppressed": false, "message": "No hay casos previos…"}`.
 
 | AC-11 | No SQLi, header vector included | `sqlmap --level 3`, report committed |
-| AC-13 | Interconsultation access denied after closure | Integration test — grant, close, re-request, expect 403 |
+| AC-13 | Interconsultation access denied after closure | Integration test — grant, close, re-request, expect 403 — **Pass** (see below) |
+
+**Status, Sub-fase 5:** AC-13 — **Pass**. `InterconsultationLifecycleIT` asserts the
+sequence with its contrapositive at both ends: *before* any interconsultation exists the
+specialist has no access (without this, a method that always returned false would pass
+the "revoked" half while proving nothing), *with* it open they do, and after `close()`
+the identical call returns false. Access is also shown to be per-patient, not a general
+grant. Confirmed live over HTTP against `docker compose`, which is the form that
+matters most here: a `SPECIALIST` in `Cardiologia` — a different service from the
+requesting `PHYSICIAN` in `Urgencias` — reads the interconsultation (200), responds
+(200), and issues a prescription that lands on the **root** encounter (201). The
+physician closes it, and the *same specialist JWT, with no re-login and no token
+change*, then gets 403 on read, 403 on respond, and 403 on prescribe. The only thing
+that changed between 200 and 403 is one row's `status` column.
 
 ### 18.3 Specified, not verified
 
