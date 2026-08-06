@@ -380,17 +380,54 @@ construir en 8 frentes a la vez.
       encounter → `link-encounter` (200) → re-lectura muestra el vínculo. `mvn verify`
       completo en verde.
 
-## Sub-fase 4: Diario de enfermería + Motor de Conocimiento
-- [ ] `HealthDiaryEntry` + `VitalSigns` + `HealthIntervention` (NIC) +
-      `InterventionOutcome` (NOC) + `MedicationAdministration` — FR-CLN-04, FR-CLN-05
-- [ ] Índice compuesto `(diagnosis_code, nic_code, effectiveness)` — ADR-006
-- [ ] Endpoint `GET /api/v1/knowledge/search` — JPQL ad-hoc, sin vista materializada
-- [ ] Enforcement de k-anonimato: `COUNT(DISTINCT patient_id) >= K_ANONYMITY_THRESHOLD`
+## Sub-fase 4: Diario de enfermería + Motor de Conocimiento — cerrada 2026-08-05
+- [x] `HealthDiaryEntry` + `VitalSigns` + `HealthIntervention` (NIC) +
+      `InterventionOutcome` (NOC) — FR-CLN-04, FR-CLN-05
+      La entrada se asocia a Patient + fecha/turno, NO a un encounter abierto (§10).
+      Texto libre cifrado; códigos NIC/NOC/NANDA/CIE-10 y mediciones de vitales en
+      claro (una presión de 120/80 no identifica a nadie — mismo criterio que
+      `blood_type`). Registrar el outcome es de una sola dirección
+      (`UPDATE ... WHERE effectiveness IS NULL`): un segundo POST no sobreescribe, esa
+      evaluación ya alimentó agregados que se leen como evidencia clínica.
+      **`MedicationAdministration` NO se construyó** — estaba en este ítem del plan
+      pero no en FR-CLN-04 como entidad propia con endpoint; su lugar natural es
+      Sub-fase 6 junto a `DispensationRecord` (farmacia), donde el circuito de
+      medicación existe completo. Anotado como diferido, no como hecho.
+- [x] Índice compuesto `(diagnosis_code, nic_code, effectiveness)` — ADR-006
+      Existe como UN índice porque el outcome se almacena en la misma tabla que la
+      intervención. §10 modela `InterventionOutcome` como entidad aparte y el dominio
+      Java lo respeta, pero en dos tablas ese índice no puede existir como uno solo, y
+      partirlo cambiaría el plan que ADR-006 dimensionó para <2s con 50k entradas. La
+      fusión es de almacenamiento, no de modelo — documentado en el javadoc y en el SQL.
+- [x] Endpoint `GET /api/v1/knowledge/search` — SQL ad-hoc, sin vista materializada
+- [x] Enforcement de k-anonimato: `COUNT(DISTINCT patient_id) >= K_ANONYMITY_THRESHOLD`
       (default 5) — FR-CLN-07
-- [ ] Test: combinación casi-única de filtros → resultado suprimido, no vacío-silencioso
+      El umbral se aplica en un `HAVING` DENTRO de la consulta, no descartando filas en
+      Java: si viviera en memoria, las filas por debajo del umbral igual habrían salido
+      de la base. Cuenta pacientes DISTINTOS, no intervenciones. `SearchKnowledgeUseCase`
+      se niega a arrancar con un umbral < 2 (una env var mal puesta no debe poder
+      desactivar en silencio algo que ADR-007 declara no negociable).
+- [x] Test: combinación casi-única de filtros → resultado suprimido, no vacío-silencioso
       — AC-14
-- [ ] Verificar que la query del motor no concatena filtros de usuario sin parametrizar
+      `HealthDiaryAndKnowledgeEngineIT`: 4 pacientes → suprimido, el quinto → aparece
+      (el contrapeso importa el doble acá: un motor que suprimiera TODO pasaría un test
+      de supresión trivialmente); 10 intervenciones sobre UN paciente → sigue suprimido;
+      "suprimido" y "no hay casos" son respuestas distinguibles. Verificado en vivo por
+      HTTP con las tres respuestas.
+- [x] Verificar que la query del motor no concatena filtros de usuario sin parametrizar
       (§8.4 aplica también acá, no solo al audit log)
+      Lo dinámico es solo la presencia/ausencia de fragmentos `AND columna = ?` fijos
+      escritos en el archivo; todo valor viaja como parámetro posicional. Lo único
+      interpolado es el nombre del schema, que viene de configuración de despliegue y
+      aun así pasa por revalidación + comillado (AC-05).
+- [ ] **Diferido a Sub-fase 6:** `MedicationAdministration` (ver arriba).
+- [ ] **Gap conocido, falla ruidosamente:** el filtro por edad de FR-CLN-06 devuelve 501.
+      `date_of_birth` está cifrada (AC-09) y un ciphertext no admite comparación por
+      rango en SQL. Resolverlo requiere una columna derivada de banda etaria (PHI
+      debilitada, necesita su propio análisis), cifrado que preserve el orden (rompe
+      AC-09), o descifrar y filtrar en memoria (saca de la base justo las filas que
+      k-anonimato protege). Lanza en vez de ignorar el filtro: ignorarlo devolvería un
+      conjunto MÁS AMPLIO que el pedido presentándolo como el pedido.
 
 ## Sub-fase 5: Interconsultas
 - [ ] `InterconsultationRequest` + `InterconsultationResponse` — FR-CLN-08

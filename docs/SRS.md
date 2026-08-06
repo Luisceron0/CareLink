@@ -389,7 +389,31 @@ urgencias and consulta externa. Links to the encounter once one is opened.
 
 ### 5.5 Nursing Health Diary
 
-> **Status: TO BE BUILT — Milestone 1, Sub-fase 4.**
+> **Status: BUILT.** `HealthDiaryEntry` + `VitalSigns` + `HealthIntervention` (NIC) +
+> `InterventionOutcome` (NOC). `POST/GET /api/v1/diary/entries`,
+> `POST /api/v1/diary/interventions/{id}/outcome`. Writing is `NURSE`-only (§4);
+> reading is any clinical role within its own service (AC-06b does the narrowing, not a
+> role list stricter than §4 asks for).
+>
+> The entry links to Patient + date/shift and **not** to an open `ClinicalEncounter`, as
+> §10 requires — nursing follow-up spans the admission independently of encounter
+> boundaries. Free-text (`observations`, intervention `description`, outcome notes) is
+> encrypted; NIC/NOC/NANDA/CIE-10 codes and vital-sign measurements are not: a blood
+> pressure of 120/80 identifies nobody on its own (same criterion as `blood_type`), and
+> keeping them numeric lets a future reference-range check evaluate them in SQL without
+> decrypting every row.
+>
+> `InterventionOutcome` is stored in the same table as `HealthIntervention` even though
+> §10 models it as its own entity. The reason is specific: §10 says "has one", the two
+> are always read together, and ADR-006/§10.1 require a composite index on
+> `(diagnosis_code, nic_code, effectiveness)` — which cannot exist as a single index if
+> those columns live in two tables, and splitting it into two indexes would change the
+> execution plan ADR-006 sized for <2s at 50k entries. The Java domain still has
+> `InterventionOutcome` as its own record: the merge is storage-level, not model-level.
+>
+> Recording an outcome is one-directional (`UPDATE ... WHERE effectiveness IS NULL`). A
+> second POST does not silently overwrite the first: that evaluation has already fed
+> Knowledge Engine aggregates that are read as clinical evidence.
 
 #### FR-CLN-04 — Health Diary Entry
 `NURSE` records daily entries per patient: vital signs, interventions (NIC-coded),
@@ -403,8 +427,48 @@ Knowledge Engine (§5.6).
 
 ### 5.6 Experiential Knowledge Engine
 
-> **Status: TO BE BUILT — Milestone 1, Sub-fase 4 (this is the most distinctive feature
-> of the merged system — see ADR-006, ADR-007).**
+> **Status: BUILT.** `GET /api/v1/knowledge/search`. Ad-hoc SQL with the composite
+> index of ADR-006, no materialized view.
+>
+> **k-anonymity is enforced inside the query** (`HAVING COUNT(DISTINCT patient_id) >=
+> ?`), not by discarding rows in Java after fetching them. If the filter lived in
+> memory, sub-threshold rows would still have left the database and passed through heap,
+> logs, and potentially an error response. It counts **distinct patients, not
+> interventions**: ten interventions on one patient are still one re-identifiable
+> patient, and counting rows would let through exactly the case ADR-007 exists to
+> prevent (covered by its own test).
+>
+> `suppressed` is a distinct state in the API contract, not an empty list — FR-CLN-07
+> requires the UI to say "insufficient data" and never show an empty result that reads
+> as "no prior cases", and those two are indistinguishable from an empty list alone.
+> When the main query returns nothing, a second query asks *only whether* any
+> below-threshold group exists — a boolean, never the codes or counts themselves.
+>
+> `SearchKnowledgeUseCase` **refuses to start** if `KNOWLEDGE_ANONYMITY_THRESHOLD` is
+> configured below 2. §5.6 makes the threshold configurable and ADR-007 makes it
+> non-negotiable; raising it is a legitimate operational choice, lowering it until
+> k-anonymity is off is not, and a mistyped env var should not be able to do that
+> silently.
+>
+> **Deliberate scope decision — this endpoint is NOT filtered by `service_id`**, unlike
+> every other clinical endpoint (AC-06b). What it returns are aggregates over at least
+> k distinct patients, never an identifiable patient's record, and its stated purpose is
+> learning from the *institution's* prior cases; narrowing it to the caller's own service
+> would answer a different and much less useful question. Privacy here is carried by
+> k-anonymity, not by service isolation. Tenant isolation still applies without
+> exception. `AUDITOR` is excluded — §4 gives that role "no PHI read path", and these
+> aggregates derive from PHI.
+>
+> **Known gap, fails loudly rather than silently:** the age-range filter FR-CLN-06 asks
+> for is **not supported** and returns `501`. `date_of_birth` is encrypted (AC-09) and a
+> ciphertext cannot be range-compared in SQL. Fixing it needs one of: a derived
+> age-band column in cleartext (weakened PHI, needs its own privacy analysis),
+> order-preserving encryption (breaks the guarantee AC-09 currently provides), or
+> decrypt-and-filter in memory (pulls out exactly the rows k-anonymity exists to
+> protect). It throws rather than quietly ignoring the filter, because ignoring it would
+> return a *wider* set than requested while presenting it as the requested one — a
+> clinically misleading answer covering more patients than the user believed they were
+> querying.
 
 #### FR-CLN-06 — Knowledge Search
 Staff query past interventions by diagnosis (CIE-10) and/or NANDA diagnosis, optionally
@@ -804,7 +868,7 @@ the task-level breakdown; the sub-fases themselves are normative here:
 | 1 | `DemoModeGuard` + Audit Log (append-only, AOP-intercepted) | Fase 0 | Done |
 | 2 | Identity gaps closed + Patient + ClinicalEncounter (signed, immutable) | Fase 1 | Done, including AC-06b. FR-ID-02 (user invitation, role + `service_id` assignment, deactivation) built after being found missing during live verification of this sub-fase |
 | 3 | Admissions + Triage | Fase 2 | Done |
-| 4 | Health Diary (NANDA/NIC/NOC) + Knowledge Engine (k-anonymity) | Fase 2 | Not started |
+| 4 | Health Diary (NANDA/NIC/NOC) + Knowledge Engine (k-anonymity) | Fase 2 | Done |
 | 5 | Interconsultations (with per-request revocation check) | Fase 2, 4 | Not started |
 | 6 | Labs + Pharmacy | Fase 2 | Not started |
 | 7 | Frontend (React + Vite, role-based SPA) covering Fases 1–6 | Fase 6 | Not started |
@@ -1083,11 +1147,24 @@ AC-10's: the trigger rejects the mutation regardless of role (including admin), 
 application-level `WHERE signed_at IS NULL` guard on `sign` means a re-sign attempt
 never even reaches the trigger.
 
-This closes every AC scheduled for Sub-fase 2 (§16.2) except AC-06b, which needs
-`service_id` on `User` — not built, tracked separately.
+This closes every AC scheduled for Sub-fase 2 (§16.2), AC-06b included.
+
+**Status, Sub-fase 4:** AC-14 — **Pass**. `HealthDiaryAndKnowledgeEngineIT` seeds four
+distinct patients sharing a diagnosis + intervention combination and asserts the result
+is **suppressed**, then adds a fifth and asserts the same query now returns the
+aggregate — the contrapositive matters here more than usual, because a Knowledge Engine
+that suppressed *everything* would pass a suppression test trivially. A separate case
+covers the failure mode the naive implementation has: ten interventions on **one**
+patient stay suppressed, because the threshold counts `DISTINCT patient_id` and not
+rows. A third case separates "suppressed" from "genuinely no prior cases" — FR-CLN-07
+requires those to be distinguishable, and both would be an empty list otherwise.
+Confirmed live over HTTP against `docker compose`: with 4 patients the response is
+`{"suppressed": true, "results": [], "message": "Datos insuficientes…"}`; with the
+fifth, `{"suppressed": false, "results": [{"distinctPatients": 5, …}]}`; and an
+unrelated diagnosis returns `{"suppressed": false, "message": "No hay casos previos…"}`.
+
 | AC-11 | No SQLi, header vector included | `sqlmap --level 3`, report committed |
 | AC-13 | Interconsultation access denied after closure | Integration test — grant, close, re-request, expect 403 |
-| AC-14 | Knowledge Engine suppresses results when k<5 | Integration test with seeded near-unique combination |
 
 ### 18.3 Specified, not verified
 

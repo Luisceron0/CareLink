@@ -169,3 +169,96 @@ CREATE TABLE admissions (
 CREATE INDEX idx_admissions_patient_id ON admissions (patient_id);
 
 GRANT SELECT, INSERT, UPDATE ON admissions TO {{app_role}};
+
+-- ============================================================================
+-- Sub-fase 4 — Diario de enfermería (FR-CLN-04, FR-CLN-05) y el sustrato del
+-- Motor de Conocimiento (FR-CLN-06, FR-CLN-07).
+-- ============================================================================
+
+-- HealthDiaryEntry. Vinculado a Patient + fecha/turno, NO a un ClinicalEncounter
+-- abierto: §10 es explícito en que el seguimiento de enfermería puede abarcar toda
+-- la admisión, independiente de los límites de un encounter.
+--
+-- `observations` es texto libre de enfermería — PHI, cifrado, mismo criterio que las
+-- notas clínicas del encounter. `shift` y `entry_date` son categóricos/estructurales.
+CREATE TABLE health_diary_entries (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    patient_id     UUID        NOT NULL,
+    nurse_user_id  UUID        NOT NULL,
+    entry_date     DATE        NOT NULL,
+    shift          TEXT        NOT NULL,
+    observations   TEXT,                 -- cifrado
+    service_id     TEXT,                 -- AC-06b
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_health_diary_entries_patient_id ON health_diary_entries (patient_id);
+
+-- VitalSigns. Los valores numéricos NO se cifran: son mediciones, no identificadores.
+-- Una presión de 120/80 no identifica a nadie por sí sola (mismo criterio que
+-- blood_type en patients), y dejarlos numéricos permite que un rango de referencia o
+-- una alerta futura los evalúe en SQL sin descifrar cada fila.
+CREATE TABLE vital_signs (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    diary_entry_id     UUID        NOT NULL REFERENCES health_diary_entries(id) ON DELETE RESTRICT,
+    systolic_mmhg      INTEGER,
+    diastolic_mmhg     INTEGER,
+    heart_rate_bpm     INTEGER,
+    respiratory_rate   INTEGER,
+    temperature_c      NUMERIC(4,1),
+    oxygen_saturation  INTEGER,
+    recorded_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_vital_signs_diary_entry_id ON vital_signs (diary_entry_id);
+
+-- HealthIntervention (NIC) + su InterventionOutcome (NOC).
+--
+-- El outcome vive en ESTA tabla y no en una propia, aunque §10 lo modele como entidad
+-- aparte, por una razón concreta: §10 dice "has one" (uno a uno), siempre se consultan
+-- juntos, y ADR-006/§10.1 piden un índice compuesto sobre
+-- (diagnosis_code, nic_code, effectiveness) — que no puede existir como un solo índice
+-- si esas columnas viven en dos tablas distintas. Partirlo en dos índices sobre dos
+-- tablas cambiaría el plan de ejecución que ADR-006 dimensionó para <2s con 50k
+-- entradas. El dominio Java sigue teniendo `InterventionOutcome` como su propio record
+-- anidado dentro de HealthIntervention: la fusión es de almacenamiento, no de modelo.
+--
+-- diagnosis_cie10 y nanda_code se denormalizan acá (además de vivir en
+-- clinical_encounters) porque el Motor de Conocimiento agrupa POR ellos: sacarlos por
+-- JOIN contra los encounters del paciente ataría cada intervención a un encounter
+-- abierto, exactamente el vínculo que FR-CLN-04 dice que NO existe.
+--
+-- effectiveness 1-5, constraint de base y no solo validación de aplicación: alimenta
+-- directamente el Motor de Conocimiento (FR-CLN-05), y un valor fuera de rango
+-- corrompería agregados que después se leen como evidencia clínica.
+CREATE TABLE health_interventions (
+    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    diary_entry_id        UUID        NOT NULL REFERENCES health_diary_entries(id) ON DELETE RESTRICT,
+    patient_id            UUID        NOT NULL,
+    nanda_code            TEXT,
+    nic_code              TEXT        NOT NULL,
+    diagnosis_cie10       TEXT,
+    description           TEXT,                 -- cifrado
+    performed_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- InterventionOutcome (FR-CLN-05), NULL hasta que se registra el resultado.
+    noc_code              TEXT,
+    effectiveness         INTEGER,
+    outcome_notes         TEXT,                 -- cifrado
+    outcome_recorded_at   TIMESTAMPTZ,
+    service_id            TEXT,                 -- AC-06b
+
+    CONSTRAINT health_interventions_effectiveness_range
+        CHECK (effectiveness IS NULL OR (effectiveness BETWEEN 1 AND 5))
+);
+
+-- ADR-006 / §10.1: el índice compuesto que sostiene la consulta del Motor de
+-- Conocimiento sin necesidad de una vista materializada.
+CREATE INDEX idx_health_interventions_knowledge
+    ON health_interventions (diagnosis_cie10, nic_code, effectiveness);
+CREATE INDEX idx_health_interventions_patient_id ON health_interventions (patient_id);
+
+GRANT SELECT, INSERT, UPDATE ON health_diary_entries TO {{app_role}};
+GRANT SELECT, INSERT ON vital_signs TO {{app_role}};
+-- UPDATE sobre health_interventions: registrar el outcome (FR-CLN-05) es un UPDATE
+-- sobre la intervención ya creada, no una fila nueva.
+GRANT SELECT, INSERT, UPDATE ON health_interventions TO {{app_role}};
