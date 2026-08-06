@@ -400,3 +400,56 @@ no contra código limpio. "0 hallazgos" sin un caso positivo que la ejercite es
 indistinguible de "la regla no matchea nada" — el mismo problema del `|| true` y de los
 tests que nunca corrieron por falta de Failsafe, con otra forma.
 **Tags:** #seguridad #testing #sast
+
+## [2026-08-06] — El gate escrito para prevenir un defecto convivió ocho sub-fases con ese mismo defecto
+**Contexto:** la auditoría de Sub-fase 8 encontró que `TokenHasher` hacía
+`getOrDefault("REFRESH_TOKEN_HMAC_SECRET", "dev-refresh-secret")`: sin la variable de
+entorno, la aplicación arrancaba normalmente y hasheaba todos los refresh tokens con un
+secreto escrito en el repositorio.
+**Lo que lo hace una lección y no solo un bug:** es EXACTAMENTE el defecto que ADR-010
+eliminó en la Sub-fase 0 al borrar el fallback `dev-secret` del gateway Python. Se
+escribió un gate de CI específicamente para que no volviera. Ese gate busca la cadena
+literal `dev-secret`, y `dev-refresh-secret` **no la contiene como substring**. El
+defecto ya estaba en el servicio que se conservó por ser el bueno, y el gate escrito para
+prevenirlo pasó por encima ocho sub-fases seguidas, con CI en verde.
+**Por qué las otras capas tampoco lo vieron:** Gitleaks busca alta entropía y
+`dev-refresh-secret` es una cadena corta y legible. `docker-compose.yml` exige la
+variable, así que en el camino normal nunca faltaba — el defecto solo se manifestaba
+corriendo el jar directo, que es lo que hace CI y lo que haría cualquiera evaluando el
+proyecto.
+**Corrección:** falla el arranque sin secreto (mismo criterio que `CLINIC_ENCRYPTION_KEY`),
+`RefreshSecretGuard` adelanta la validación al boot para que no espere al primer login, y
+un gate nuevo que busca el PATRÓN estructural (`getOrDefault` sobre un nombre de secreto)
+en vez de un literal. Verificado rompiéndolo a propósito.
+**Regla para el futuro:** un gate que busca un literal detecta ese literal y nada más.
+Cuando el objetivo es prevenir una CLASE de defecto ("un secreto con valor por defecto"),
+el gate tiene que buscar la forma estructural del defecto, no una de sus instancias. Y
+—esto vale para todos los gates de este repositorio— hay que verificarlo reintroduciendo
+el defecto a propósito antes de confiar en él: es la única forma de distinguir un gate
+que funciona de uno que solo parece existir.
+**Tags:** #seguridad #ci #testing
+
+## [2026-08-06] — Una regla de SAST en verde sobre código que nunca examinó
+**Contexto:** `.semgrep/no-string-sql.yaml` tenía un único patrón,
+`String sql = "..." + $X;`, y el proyecto tiene nueve repositorios que arman SQL
+dinámico.
+**Error:** ninguno usa esa forma. Todos construyen la consulta con `StringBuilder` o la
+pasan directo a `jdbcTemplate.query(...)`. La regla llevaba toda la sesión en verde sin
+haber examinado una sola de las consultas que debía cubrir — cobertura aparente, cero
+cobertura real.
+**Lo que apareció al corregirla:** la primera versión ampliada TAMPOCO detectaba nada, y
+solo se supo porque se probó contra un archivo deliberadamente vulnerable antes de darla
+por buena. El motivo era sutil: en Java `"x" + v + "y"` se parsea como `(("x" + v) + "y")`,
+así que un patrón `"..." + $X` no matchea ese árbol. Corregido a `$A + $B`.
+**Y un segundo aprendizaje sobre las excepciones:** la regla ampliada empezó marcando 17
+falsos positivos (el patrón legítimo de AC-06b, `sql + " AND service_id = ?"`). La
+tentación era excluir "concatenar literales", que habría sido FALSO: la inyección clásica
+`"... '" + userInput + "'"` también termina en un literal. La exclusión terminó siendo por
+nombre de identificador (`schema`, `sql`), apoyada en que esos dos están auditados en este
+repositorio y no en una heurística general. Cuando apareció un repositorio que usaba otro
+nombre para lo mismo, se renombró el código en vez de agregar el nombre a la lista: una
+lista de excepciones que crece con cada caso deja de ser una excepción acotada.
+**Regla para el futuro:** una regla de SAST se verifica contra un ejemplo vulnerable
+escrito a propósito, igual que un gate de CI se verifica rompiéndolo. "0 hallazgos" solo
+significa algo si antes se comprobó que la regla es capaz de encontrar algo.
+**Tags:** #seguridad #testing #sast

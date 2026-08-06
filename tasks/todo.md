@@ -580,11 +580,47 @@ Reporte completo: `docs/security/AUDIT-2026-08-06.md`.
       force-push sobre un PR ya mergeado.
 
 ## Criterios de completitud del milestone
-- [ ] Todos los AC de §18.1 y §18.2 del SRS v3.0 en "Pass"
-- [ ] `docs/SRS.md` §5 y §16.1 actualizados con el estado real por módulo
-- [ ] `tasks/lessons.md` actualizado
+- [x] Todos los AC de §18.1 y §18.2 del SRS v3.0 en "Pass"
+      AC-01, AC-02, AC-03, AC-04, AC-05, AC-06, AC-06b, AC-07, AC-08, AC-09, AC-10,
+      AC-11, AC-13, AC-14. Cada uno con evidencia de test Y verificación en vivo contra
+      `docker compose up` — la disciplina que esta sesión adoptó tras encontrar, en
+      Sub-fase 0, 22 tests en verde sobre una aplicación que no arrancaba.
+- [x] `docs/SRS.md` §5 y §16.1 actualizados con el estado real por módulo
+- [x] `tasks/lessons.md` actualizado
 - [ ] Walkthrough grabado (GIF/video) para presentación de portafolio — sustituye al
       demo público que se decidió no desplegar (ADR-015)
+      **Pendiente:** requiere grabación de pantalla, que no se puede hacer desde este
+      entorno. El frontend ya está construido y funcionando (Sub-fase 7), así que es
+      grabar el flujo, no construirlo.
+- [ ] **Pendiente de decisión del autor:** purga de `test_identity.db` del historial de
+      git (Sub-fase 0). Único ítem que quedó abierto desde el principio por decisión
+      explícita, no por olvido.
+- [ ] **Pendiente de infraestructura:** ver el workflow correr en GitHub Actions.
 
 ## Revisión
-[Se completa al cerrar el milestone]
+
+**Nueve sub-fases cerradas, cada una terminando en algo que corre y se puede mostrar** —
+que era la regla de oro del milestone. Ninguna se dio por cerrada con tests en verde
+solamente: todas se verificaron además contra el stack real levantado, y esa decisión
+—tomada tras encontrar en Sub-fase 0 que 22 tests verdes convivían con una aplicación
+que no podía arrancar— fue la que encontró casi todos los defectos reales de la sesión:
+
+- el cableado de `DataSource` que hacía correr TODO el tráfico como superusuario (AC-10
+  roto mientras su test estaba en verde),
+- el component-scan que dejaba fuera el paquete `clinical` entero,
+- el registro de tenant roto contra un compose limpio por falta de un catcher SMTP,
+- el gate de CI que "prevenía" un secreto hardcodeado y no lo detectaba,
+- la regla semgrep que vigilaba una forma de SQL que este código nunca usó,
+- `mvn test-compile` devolviendo BUILD SUCCESS sobre tests que no compilaban.
+
+Ninguno de esos aparece leyendo el código. El patrón que se repite en los seis es el
+mismo: **una señal verde que no verifica lo que uno supone que verifica.** Está anotado
+en `tasks/lessons.md` desde varios ángulos porque volvió a aparecer con formas distintas
+en casi todas las sub-fases.
+
+Dos decisiones de alcance se pararon y se consultaron en vez de resolverse en silencio:
+FR-ID-02 (construir el flujo de invitación, confirmado por el autor) y el gap de AC-06b.
+Las decisiones de diseño no cubiertas por el SRS —derivación de clave por tenant, fusión
+de almacenamiento de `InterventionOutcome`, el Motor de Conocimiento sin filtro por
+servicio, el filtro de edad que falla ruidosamente— quedaron documentadas donde se
+toman, con el razonamiento, no solo con el resultado.
