@@ -19,4 +19,5 @@ import java.util.UUID;
  */
 public record Admission(UUID id, UUID patientId, AdmissionType admissionType, TriagePriority triagePriority,
                          UUID admittedByUserId, OffsetDateTime admittedAt, UUID clinicalEncounterId,
-                         OffsetDateTime createdAt) {}
+                         /** AC-06b — servicio del ingreso, estampado de quien lo registra. */
+                         String serviceId, OffsetDateTime createdAt) {}

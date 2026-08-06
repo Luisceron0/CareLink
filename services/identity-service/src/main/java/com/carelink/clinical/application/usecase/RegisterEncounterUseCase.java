@@ -20,11 +20,11 @@ public class RegisterEncounterUseCase {
     @Auditable(action = "ENCOUNTER_CREATE", tenantSlugExpression = "#tenantSlug.value()", patientIdExpression = "#patientId")
     public ClinicalEncounter execute(TenantSlug tenantSlug, UUID patientId, UUID physicianUserId,
                                       String chiefComplaint, String examFindings, String diagnosisCie10,
-                                      String treatmentPlan, String followUp) {
+                                      String treatmentPlan, String followUp, String serviceId) {
         ClinicalEncounter encounter = new ClinicalEncounter(
                 UUID.randomUUID(), patientId, physicianUserId,
                 chiefComplaint, examFindings, diagnosisCie10, treatmentPlan, followUp,
-                OffsetDateTime.now(), null, null);
+                serviceId, OffsetDateTime.now(), null, null);
         repository.save(tenantSlug, encounter);
         return encounter;
     }

@@ -20,8 +20,15 @@ CREATE TABLE IF NOT EXISTS patients (
     sex              TEXT        NOT NULL,
     blood_type       TEXT        NOT NULL,
     allergies        TEXT,                 -- cifrado, JSON serializado
+    -- AC-06b: servicio (departamento) al que pertenece este paciente. Se estampa con
+    -- el service_id del usuario que lo registra y filtra toda lectura posterior de
+    -- roles no exentos. NULL solo si lo creó un rol exento (TENANT_ADMIN) — ver
+    -- AuthenticatedPrincipal.serviceScopeFilter(). Categórico, no se cifra.
+    service_id       TEXT,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX idx_patients_service_id ON patients (service_id);
 
 -- audit_log (FR-CLN-13, SRS §10) — append-only, por tenant. Cada lectura,
 -- escritura o export de PHI genera una fila acá: timestamp, usuario, rol,
@@ -109,6 +116,7 @@ CREATE TABLE clinical_encounters (
     diagnosis_cie10    TEXT,
     treatment_plan     TEXT,                 -- cifrado
     follow_up          TEXT,                 -- cifrado
+    service_id         TEXT,                 -- AC-06b, mismo criterio que patients.service_id
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     signed_at          TIMESTAMPTZ,
     signed_by_user_id  UUID
@@ -154,6 +162,7 @@ CREATE TABLE admissions (
     admitted_by_user_id    UUID        NOT NULL,
     admitted_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
     clinical_encounter_id  UUID,
+    service_id             TEXT,       -- AC-06b, mismo criterio que patients.service_id
     created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

@@ -5,8 +5,7 @@ import com.carelink.clinical.application.usecase.LinkEncounterToAdmissionUseCase
 import com.carelink.clinical.application.usecase.RegisterAdmissionUseCase;
 import com.carelink.clinical.domain.Admission;
 import com.carelink.clinical.domain.value.AdmissionType;
-import com.carelink.identity.domain.Tenant;
-import com.carelink.identity.domain.port.TenantRepository;
+import com.carelink.clinical.domain.value.ServiceScope;
 import com.carelink.identity.domain.value.TenantSlug;
 import com.carelink.identity.infrastructure.security.AuthenticatedPrincipal;
 import org.springframework.http.HttpStatus;
@@ -37,16 +36,16 @@ public class AdmissionController {
     private final RegisterAdmissionUseCase registerAdmissionUseCase;
     private final LinkEncounterToAdmissionUseCase linkEncounterToAdmissionUseCase;
     private final GetAdmissionUseCase getAdmissionUseCase;
-    private final TenantRepository tenantRepository;
+    private final ClinicalRequestScope requestScope;
 
     public AdmissionController(RegisterAdmissionUseCase registerAdmissionUseCase,
                                 LinkEncounterToAdmissionUseCase linkEncounterToAdmissionUseCase,
                                 GetAdmissionUseCase getAdmissionUseCase,
-                                TenantRepository tenantRepository) {
+                                ClinicalRequestScope requestScope) {
         this.registerAdmissionUseCase = registerAdmissionUseCase;
         this.linkEncounterToAdmissionUseCase = linkEncounterToAdmissionUseCase;
         this.getAdmissionUseCase = getAdmissionUseCase;
-        this.tenantRepository = tenantRepository;
+        this.requestScope = requestScope;
     }
 
     @PostMapping
@@ -55,7 +54,7 @@ public class AdmissionController {
         if (!ADMISSIONS_ROLE.equals(principal == null ? null : principal.role())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        Optional<TenantSlug> tenantSlug = resolveTenantSlug(principal);
+        Optional<TenantSlug> tenantSlug = requestScope.tenantSlug(principal);
         if (tenantSlug.isEmpty()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
@@ -70,7 +69,9 @@ public class AdmissionController {
 
         try {
             Admission admission = registerAdmissionUseCase.execute(
-                    tenantSlug.get(), req.getPatientId(), admissionType, req.getTriagePriority(), principal.userId());
+                    tenantSlug.get(), req.getPatientId(), admissionType, req.getTriagePriority(),
+                    // AC-06b: la admisión queda estampada con el servicio de quien la registra.
+                    principal.userId(), principal.serviceId());
             return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(admission));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
@@ -84,33 +85,37 @@ public class AdmissionController {
         if (!PHYSICIAN_ROLE.equals(principal == null ? null : principal.role())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        Optional<TenantSlug> tenantSlug = resolveTenantSlug(principal);
+        Optional<TenantSlug> tenantSlug = requestScope.tenantSlug(principal);
         if (tenantSlug.isEmpty()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
-        boolean linked = linkEncounterToAdmissionUseCase.execute(tenantSlug.get(), id, req.getEncounterId());
+        Optional<ServiceScope> scope = requestScope.serviceScope(principal);
+        if (scope.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        boolean linked = linkEncounterToAdmissionUseCase.execute(
+                tenantSlug.get(), id, req.getEncounterId(), scope.get());
         return linked ? ResponseEntity.ok().build() : ResponseEntity.status(HttpStatus.FORBIDDEN).build();
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<?> get(@AuthenticationPrincipal AuthenticatedPrincipal principal,
                                   @PathVariable UUID id) {
-        Optional<TenantSlug> tenantSlug = resolveTenantSlug(principal);
+        Optional<TenantSlug> tenantSlug = requestScope.tenantSlug(principal);
         if (tenantSlug.isEmpty()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
-        return getAdmissionUseCase.execute(tenantSlug.get(), id)
+        Optional<ServiceScope> readScope = requestScope.serviceScope(principal);
+        if (readScope.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        return getAdmissionUseCase.execute(tenantSlug.get(), id, readScope.get())
                 .map(admission -> ResponseEntity.ok(toResponse(admission)))
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.FORBIDDEN).build());
-    }
-
-    private Optional<TenantSlug> resolveTenantSlug(AuthenticatedPrincipal principal) {
-        if (principal == null || principal.tenantId() == null) {
-            return Optional.empty();
-        }
-        return tenantRepository.findById(principal.tenantId()).map(Tenant::slug);
     }
 
     private Map<String, Object> toResponse(Admission admission) {

@@ -6,6 +6,7 @@ import com.carelink.clinical.application.usecase.SignEncounterUseCase;
 import com.carelink.clinical.application.usecase.UpdateEncounterUseCase;
 import com.carelink.clinical.domain.ClinicalEncounter;
 import com.carelink.clinical.domain.exception.EncounterAlreadySignedException;
+import com.carelink.clinical.domain.value.ServiceScope;
 import com.carelink.identity.domain.port.SchemaProvisioner;
 import com.carelink.identity.domain.value.TenantSlug;
 import com.carelink.identity.support.EmbeddedPostgresSupport;
@@ -71,7 +72,7 @@ class ClinicalEncounterLifecycleIT {
         ClinicalEncounter created = registerEncounterUseCase.execute(
                 tenantSlug, patientId, physicianId,
                 "Dolor torácico de dos días de evolución", "Auscultación sin hallazgos",
-                "R07.4", "Reposo, control en 48h", "Reconsultar si empeora");
+                "R07.4", "Reposo, control en 48h", "Reconsultar si empeora", "Urgencias");
 
         assertThat(created.isSigned()).isFalse();
 
@@ -81,17 +82,17 @@ class ClinicalEncounterLifecycleIT {
         ClinicalEncounter edited = new ClinicalEncounter(
                 created.id(), created.patientId(), created.physicianUserId(),
                 "Dolor torácico — actualizado", created.examFindings(), created.diagnosisCie10(),
-                created.treatmentPlan(), created.followUp(), created.createdAt(), null, null);
+                created.treatmentPlan(), created.followUp(), created.serviceId(), created.createdAt(), null, null);
         updateEncounterUseCase.execute(tenantSlug, edited);
 
-        Optional<ClinicalEncounter> afterEdit = getEncounterUseCase.execute(tenantSlug, created.id());
+        Optional<ClinicalEncounter> afterEdit = getEncounterUseCase.execute(tenantSlug, created.id(), ServiceScope.of("Urgencias"));
         assertThat(afterEdit).isPresent();
         assertThat(afterEdit.get().chiefComplaint()).isEqualTo("Dolor torácico — actualizado");
 
         // Firmar.
         signEncounterUseCase.execute(tenantSlug, created.id(), physicianId);
 
-        Optional<ClinicalEncounter> afterSign = getEncounterUseCase.execute(tenantSlug, created.id());
+        Optional<ClinicalEncounter> afterSign = getEncounterUseCase.execute(tenantSlug, created.id(), ServiceScope.of("Urgencias"));
         assertThat(afterSign).isPresent();
         assertThat(afterSign.get().isSigned()).isTrue();
         assertThat(afterSign.get().signedByUserId()).isEqualTo(physicianId);
@@ -101,7 +102,7 @@ class ClinicalEncounterLifecycleIT {
         ClinicalEncounter attemptAfterSign = new ClinicalEncounter(
                 created.id(), created.patientId(), created.physicianUserId(),
                 "Intento de alterar un encounter firmado", created.examFindings(), created.diagnosisCie10(),
-                created.treatmentPlan(), created.followUp(), created.createdAt(), null, null);
+                created.treatmentPlan(), created.followUp(), created.serviceId(), created.createdAt(), null, null);
         assertThatThrownBy(() -> updateEncounterUseCase.execute(tenantSlug, attemptAfterSign))
                 .isInstanceOf(EncounterAlreadySignedException.class);
 
@@ -110,7 +111,7 @@ class ClinicalEncounterLifecycleIT {
                 .isInstanceOf(EncounterAlreadySignedException.class);
 
         // Y el contenido NO cambió — el intento de "Intento de alterar..." no se coló.
-        Optional<ClinicalEncounter> afterRejectedUpdate = getEncounterUseCase.execute(tenantSlug, created.id());
+        Optional<ClinicalEncounter> afterRejectedUpdate = getEncounterUseCase.execute(tenantSlug, created.id(), ServiceScope.of("Urgencias"));
         assertThat(afterRejectedUpdate.get().chiefComplaint()).isEqualTo("Dolor torácico — actualizado");
     }
 
@@ -123,7 +124,7 @@ class ClinicalEncounterLifecycleIT {
         ClinicalEncounter created = registerEncounterUseCase.execute(
                 tenantSlug, UUID.randomUUID(), UUID.randomUUID(),
                 "Motivo de consulta confidencial", "Hallazgos del examen",
-                "J45.9", "Plan de tratamiento", "Seguimiento");
+                "J45.9", "Plan de tratamiento", "Seguimiento", "Urgencias");
 
         var row = adminJdbcTemplate.queryForMap(
                 "SELECT chief_complaint, exam_findings, diagnosis_cie10 FROM tenant_encounterphi.clinical_encounters WHERE id = ?",

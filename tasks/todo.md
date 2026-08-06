@@ -273,12 +273,28 @@ construir en 8 frentes a la vez.
       endpoints independientes — `PatientController` y `ClinicalEncounterController` —
       con la misma implementación (`resolveTenantSlug`). La parte de
       cross-`service_id` queda explícitamente fuera de este ítem — ver AC-06b abajo.
-- [ ] Test: lectura cross-service dentro del mismo tenant → 403 — AC-06b (cobertura 100%
+- [x] Test: lectura cross-service dentro del mismo tenant → 403 — AC-06b (cobertura 100%
       en este path)
-      `service_id` ya existe en `User` (V4, FR-ID-02) — lo que falta ahora es la
-      ENFORCEMENT: que cada endpoint clínico compare el `service_id` de quien llama
-      contra el del recurso, igual que ya hace con el tenant. Ningún endpoint clínico
-      lo hace todavía. Más grande que un ítem de checklist; es su propia tarea.
+      `service_id` viaja en el JWT (claim `service_id`, seteado en el login desde
+      `users.service_id`) y los tres recursos clínicos (Patient, ClinicalEncounter,
+      Admission) lo llevan estampado. El filtro va en el `WHERE` del SQL, no sobre la
+      fila ya traída — una fila de otro servicio nunca sale de la base. En la única
+      mutación que no viene precedida de una lectura (`linkClinicalEncounter`) el
+      filtro está en el `UPDATE ... WHERE`, así que no hay ventana entre "verifiqué
+      que es mío" y "lo modifico".
+      **Decisión de diseño:** el alcance se pasa como value object `ServiceScope`, no
+      como `String` nullable. Con un `String`, `null` solo puede significar "sin
+      filtro", así que cualquier camino que se olvide de setearlo FALLA ABIERTO
+      (devuelve todo el tenant en vez de nada). Con el tipo, "sin filtro" hay que
+      pedirlo por nombre (`ServiceScope.allServices()`) y olvidarse es un error de
+      compilación. Mismo razonamiento que `TenantSlug` en AC-05. Un rol no exento sin
+      `service_id` resuelve a SIN ACCESO, no a acceso irrestricto.
+      Evidencia: `ServiceScopeIsolationIT` (los tres recursos, cada uno con su
+      contrapeso: el mismo recurso leído con el servicio correcto SÍ vuelve) + en vivo
+      contra `docker compose`: dos PHYSICIAN en Urgencias y Consulta Externa del MISMO
+      tenant, ambos creados por el flujo real de invitación → leer el paciente del otro
+      servicio = 403, el propio = 200, TENANT_ADMIN = 200; idem encounter, incluido
+      `POST /sign` (mutación) = 403 cross-service, 200 dentro del servicio.
 
 ### Descubierto durante la Sub-fase 2 (no estaba en el plan original)
 - [x] **FR-ID-02 no existía: no había ningún flujo para crear un usuario con rol

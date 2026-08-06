@@ -8,6 +8,7 @@ import com.carelink.clinical.application.usecase.RegisterEncounterUseCase;
 import com.carelink.clinical.domain.Admission;
 import com.carelink.clinical.domain.ClinicalEncounter;
 import com.carelink.clinical.domain.value.AdmissionType;
+import com.carelink.clinical.domain.value.ServiceScope;
 import com.carelink.identity.domain.port.SchemaProvisioner;
 import com.carelink.identity.domain.value.TenantSlug;
 import com.carelink.identity.support.EmbeddedPostgresSupport;
@@ -69,23 +70,23 @@ class AdmissionLifecycleIT {
         UUID physicianId = UUID.randomUUID();
 
         Admission admission = registerAdmissionUseCase.execute(
-                tenantSlug, patientId, AdmissionType.URGENCIAS, 2, admissionsUserId);
+                tenantSlug, patientId, AdmissionType.URGENCIAS, 2, admissionsUserId, "Urgencias");
         assertThat(admission.triagePriority().value()).isEqualTo(2);
         assertThat(admission.clinicalEncounterId()).isNull();
 
         ClinicalEncounter encounter = registerEncounterUseCase.execute(
                 tenantSlug, patientId, physicianId,
-                "Dolor torácico", "Auscultación sin hallazgos", "R07.4", "Reposo", "Control 48h");
+                "Dolor torácico", "Auscultación sin hallazgos", "R07.4", "Reposo", "Control 48h", "Urgencias");
 
-        boolean linked = linkEncounterToAdmissionUseCase.execute(tenantSlug, admission.id(), encounter.id());
+        boolean linked = linkEncounterToAdmissionUseCase.execute(tenantSlug, admission.id(), encounter.id(), ServiceScope.of("Urgencias"));
         assertThat(linked).isTrue();
 
-        Optional<Admission> reread = getAdmissionUseCase.execute(tenantSlug, admission.id());
+        Optional<Admission> reread = getAdmissionUseCase.execute(tenantSlug, admission.id(), ServiceScope.of("Urgencias"));
         assertThat(reread).isPresent();
         assertThat(reread.get().clinicalEncounterId()).isEqualTo(encounter.id());
 
         // Y el encounter en sí sigue siendo el mismo, legible por su propio caso de uso.
-        assertThat(getEncounterUseCase.execute(tenantSlug, encounter.id())).isPresent();
+        assertThat(getEncounterUseCase.execute(tenantSlug, encounter.id(), ServiceScope.of("Urgencias"))).isPresent();
     }
 
     @Test
@@ -98,16 +99,16 @@ class AdmissionLifecycleIT {
         UUID admissionsUserId = UUID.randomUUID();
 
         assertThatThrownBy(() -> registerAdmissionUseCase.execute(
-                tenantSlug, patientId, AdmissionType.URGENCIAS, null, admissionsUserId))
+                tenantSlug, patientId, AdmissionType.URGENCIAS, null, admissionsUserId, "Urgencias"))
                 .isInstanceOf(IllegalArgumentException.class);
 
         assertThatThrownBy(() -> registerAdmissionUseCase.execute(
-                tenantSlug, patientId, AdmissionType.CONSULTA_EXTERNA, 3, admissionsUserId))
+                tenantSlug, patientId, AdmissionType.CONSULTA_EXTERNA, 3, admissionsUserId, "Consulta Externa"))
                 .isInstanceOf(IllegalArgumentException.class);
 
         // Contrapeso: CONSULTA_EXTERNA sin prioridad sí es válida.
         Admission admission = registerAdmissionUseCase.execute(
-                tenantSlug, patientId, AdmissionType.CONSULTA_EXTERNA, null, admissionsUserId);
+                tenantSlug, patientId, AdmissionType.CONSULTA_EXTERNA, null, admissionsUserId, "Consulta Externa");
         assertThat(admission.triagePriority()).isNull();
     }
 
@@ -120,8 +121,8 @@ class AdmissionLifecycleIT {
         schemaProvisioner.provisionSchema(tenantB);
 
         Admission admission = registerAdmissionUseCase.execute(
-                tenantA, UUID.randomUUID(), AdmissionType.CONSULTA_EXTERNA, null, UUID.randomUUID());
+                tenantA, UUID.randomUUID(), AdmissionType.CONSULTA_EXTERNA, null, UUID.randomUUID(), "Consulta Externa");
 
-        assertThat(getAdmissionUseCase.execute(tenantB, admission.id())).isEmpty();
+        assertThat(getAdmissionUseCase.execute(tenantB, admission.id(), ServiceScope.allServices())).isEmpty();
     }
 }

@@ -26,6 +26,8 @@ public record ClinicalEncounter(
         String diagnosisCie10,
         String treatmentPlan,
         String followUp,
+        /** AC-06b — servicio del encounter, estampado del médico que lo abre. */
+        String serviceId,
         OffsetDateTime createdAt,
         OffsetDateTime signedAt,
         UUID signedByUserId

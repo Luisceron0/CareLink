@@ -31,6 +31,8 @@ public record Patient(
         Sex sex,
         BloodType bloodType,
         List<String> allergies,
+        /** AC-06b — servicio al que pertenece el paciente. Nullable: lo creó un rol exento (§4). */
+        String serviceId,
         OffsetDateTime createdAt
 ) {
     public Patient {

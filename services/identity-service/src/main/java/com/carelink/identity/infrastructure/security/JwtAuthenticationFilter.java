@@ -36,9 +36,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 // principal con tenantId nulo — no es este filtro el que decide eso.
                 String tenantIdClaim = claims.getStringClaim("tenant_id");
                 UUID tenantId = tenantIdClaim != null ? UUID.fromString(tenantIdClaim) : null;
+                // También nullable: TENANT_ADMIN y AUDITOR no tienen servicio asignado
+                // (§4), y el claim simplemente no viaja. AC-06b: un rol que SÍ debe
+                // filtrarse por servicio y llega sin service_id se rechaza en el
+                // controller, no acá — ver AuthenticatedPrincipal.serviceScopeFilter().
+                String serviceId = claims.getStringClaim("service_id");
 
                 var authorities = Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + role));
-                var principal = new AuthenticatedPrincipal(userId, tenantId, role);
+                var principal = new AuthenticatedPrincipal(userId, tenantId, role, serviceId);
                 // El principal es el objeto tipado, no claims.getSubject() como antes.
                 // authentication.getName() sigue devolviendo el userId como String —no
                 // porque sí, sino porque AuthenticatedPrincipal implementa la interfaz de

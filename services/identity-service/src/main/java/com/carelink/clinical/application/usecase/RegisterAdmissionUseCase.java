@@ -32,7 +32,7 @@ public class RegisterAdmissionUseCase {
     @Auditable(action = "ADMISSION_REGISTER", tenantSlugExpression = "#tenantSlug.value()",
             patientIdExpression = "#patientId")
     public Admission execute(TenantSlug tenantSlug, UUID patientId, AdmissionType admissionType,
-                              Integer triagePriorityValue, UUID admittedByUserId) {
+                              Integer triagePriorityValue, UUID admittedByUserId, String serviceId) {
         TriagePriority triagePriority = triagePriorityValue == null ? null : new TriagePriority(triagePriorityValue);
 
         if (admissionType == AdmissionType.URGENCIAS && triagePriority == null) {
@@ -44,7 +44,7 @@ public class RegisterAdmissionUseCase {
 
         Admission admission = new Admission(
                 UUID.randomUUID(), patientId, admissionType, triagePriority,
-                admittedByUserId, OffsetDateTime.now(), null, OffsetDateTime.now());
+                admittedByUserId, OffsetDateTime.now(), null, serviceId, OffsetDateTime.now());
         admissionRepository.save(tenantSlug, admission);
         return admission;
     }
