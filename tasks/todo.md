@@ -499,11 +499,37 @@ construir en 8 frentes a la vez.
       dosis dispensadas y no distingue los dos actos. Anotado como decisión, no como
       olvido.
 
-## Sub-fase 7: Frontend
-- [ ] React 18 + Vite + Tailwind — SPA única, vistas por rol (§4) — ADR-014
-- [ ] Vistas: Admisiones, Encuentro clínico, Diario de enfermería, Motor de Conocimiento
+## Sub-fase 7: Frontend — cerrada 2026-08-06
+- [x] React 18 + Vite + Tailwind — SPA única, vistas por rol (§4) — ADR-014
+      **El access token vive SOLO en memoria** (variable de módulo), nunca en
+      localStorage/sessionStorage: un XSS puede leer el storage, no una closure. El
+      refresh token queda en la cookie HttpOnly que setea el backend, que este código
+      no puede tocar ni por accidente. El costo es que un F5 pierde la sesión hasta que
+      /refresh la reconstruye — es el trade que se quiere.
+      **La navegación filtrada por rol es UX, no seguridad:** ocultar un link no impide
+      llamar al endpoint, y cada endpoint valida rol, tenant y servicio por su cuenta.
+      Quien fuerce una URL que no le toca ve la vista vacía con el 403 del backend, no
+      datos. El frontend nunca es la capa que decide un permiso.
+- [x] Vistas: Admisiones, Encuentro clínico, Diario de enfermería, Motor de Conocimiento
       (con mensaje explícito cuando k<5 — FR-CLN-07 UX), Interconsultas, Labs, Farmacia
-- [ ] `docker-compose.yml` completa el placeholder de Sub-fase 0 con el frontend real
+      Nueve vistas en total (además Pacientes, Login y Gestión de usuarios/FR-ID-02).
+      La vista del Motor de Conocimiento tiene TRES estados de resultado, no dos:
+      "Datos insuficientes" (supresión por k-anonimato) es visualmente distinto de "Sin
+      casos previos", que es exactamente lo que FR-CLN-07 exige — confundirlos lleva a
+      creer que una intervención nunca se usó cuando sí, solo que sobre pocos pacientes.
+- [x] `docker-compose.yml` completa el placeholder de Sub-fase 0 con el frontend real
+      Dockerfile multi-stage: la imagen final tiene archivos estáticos y nginx, sin
+      Node ni node_modules ni el código fuente. nginx sirve la SPA (con fallback a
+      index.html para el routing del cliente) y hace de proxy de /api dentro de la red
+      de compose — el bundle solo usa rutas relativas, no hay URL de backend embebida.
+      NO reenvía X-Forwarded-For a propósito: el backend limita por getRemoteAddr()
+      (§8.4) y reenviarlo reintroduciría el vector que esa decisión evita.
+      **Verificado en un navegador real** (agent-browser + Chrome headless, instalado
+      para esto): login por UI como NURSE, navegación mostrando solo sus cuatro
+      secciones (sin Admisiones, Encuentros ni Usuarios), búsqueda en el Motor de
+      Conocimiento devolviendo "Datos insuficientes" con 1 paciente sembrado y "Sin
+      casos previos" con un diagnóstico inexistente — los dos estados distinguibles en
+      pantalla, no solo en el JSON.
 
 ## Sub-fase 8: Verificación de seguridad end-to-end
 - [ ] Ampliar `.semgrep/` a concatenación JPQL, no solo `String sql = "..." + $X`

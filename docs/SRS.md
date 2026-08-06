@@ -942,7 +942,7 @@ the task-level breakdown; the sub-fases themselves are normative here:
 | 4 | Health Diary (NANDA/NIC/NOC) + Knowledge Engine (k-anonymity) | Fase 2 | Done |
 | 5 | Interconsultations (with per-request revocation check) | Fase 2, 4 | Done |
 | 6 | Labs + Pharmacy | Fase 2 | Done |
-| 7 | Frontend (React + Vite, role-based SPA) covering Fases 1–6 | Fase 6 | Not started |
+| 7 | Frontend (React + Vite, role-based SPA) covering Fases 1–6 | Fase 6 | Done |
 | 8 | Security verification end-to-end: sqlmap, semgrep rule extension, CI gates blocking | Fase 7 | Not started |
 
 ### 16.3 Specified — deliberately not built
@@ -1044,8 +1044,28 @@ Records implementation, with the four open points (tenancy, auth, frontend, depl
 closed as recorded there and reflected throughout this SRS.
 
 ### ADR-014 — Frontend: React + Vite, Single SPA
+**Status: BUILT** (`frontend/`, replacing the Sub-fase 0 nginx placeholder). Nine views
+covering Fases 1–6, navigation filtered by the role in the JWT.
 **Decision:** React 18 + Vite, one application with role-based views. No Next.js, no
 separate patient/physician portal apps.
+
+**Two implementation decisions worth recording.** First, the access token lives **only
+in a module-scope variable**, never in `localStorage`/`sessionStorage`: any XSS on the
+page can read storage, but cannot read a closure. The refresh token stays in the
+HttpOnly cookie the backend sets, which this code cannot touch even by accident — that
+being the point of HttpOnly. The cost is that a page reload drops the session until
+`/refresh` rebuilds it from the cookie, which is the intended trade.
+
+Second, **role-filtered navigation is UX, not security**. Hiding a link does not stop
+anyone from calling the endpoint, and every backend endpoint validates role, tenant, and
+service on its own. A user who forces a URL they shouldn't see gets an empty view with
+the backend's 403 — not data. The frontend is never the layer that decides a permission.
+
+nginx serves the built assets and proxies `/api` inside the compose network, so the
+bundle only ever uses relative paths — there is no backend URL baked into it that could
+end up pointing somewhere else per environment. It deliberately does **not** forward
+`X-Forwarded-For`: the backend rate-limits on `getRemoteAddr()` (§8.4) and forwarding
+that header would reintroduce the vector that decision avoids.
 **Rationale:** this milestone's users are all staff (§4) — there is no patient
 self-service surface in the ESE domain, and CareLink's original two-portal design assumed
 one. SSR/SEO benefits of Next.js don't apply to an internal tool. Fewer apps to build and
