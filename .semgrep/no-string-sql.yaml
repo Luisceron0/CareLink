@@ -1,7 +1,74 @@
 rules:
+  # Regla original: cubría exactamente `String sql = "..." + $X;` y nada más.
+  # La auditoría de Sub-fase 8 encontró que esa forma no es la que este código usa —
+  # los repositorios arman el SQL con StringBuilder o lo pasan directo a
+  # jdbcTemplate.query(...)— así que la regla estaba en verde sobre nueve repositorios
+  # con SQL dinámico sin haber mirado ninguno. Se amplía abajo.
   - id: no-string-sql
     pattern: |-
       String sql = "..." + $X;
-    message: "Detectada concatenación en query de SQL — usar parametrización"
+    message: "Concatenación en query SQL asignada a variable — usar parametrización (?)"
+    languages: ["java"]
+    severity: ERROR
+
+  # Ampliación 1 — concatenación DENTRO de la llamada al template, que es la forma que
+  # realmente aparece en este codebase.
+  #
+  # El `pattern-not` sobre `schema` es deliberado y acotado: la ÚNICA interpolación
+  # legítima acá es el nombre del schema del tenant, que no puede ir parametrizado (SQL
+  # no admite un identificador como parámetro) y que cada repositorio revalida contra
+  # TenantSlug.PATTERN y comilla antes de usar (AC-05). Lo que la regla busca es
+  # cualquier OTRA cosa concatenada — que sería un valor, y un valor siempre puede ir
+  # como `?`.
+  - id: no-string-sql-in-jdbc-call
+    patterns:
+      # $A + $B matchea la concatenación de MÁS AFUERA: en Java, `"x" + v + "y"` se
+      # parsea como `(("x" + v) + "y")`, así que un patrón `"..." + $X` NO matchea ese
+      # caso — se comprobó contra un archivo deliberadamente vulnerable antes de
+      # confiar en la regla.
+      - pattern-either:
+          - pattern: $T.query($A + $B, ...)
+          - pattern: $T.update($A + $B, ...)
+          - pattern: $T.queryForObject($A + $B, ...)
+          - pattern: $T.queryForMap($A + $B, ...)
+      # DOS excepciones, ambas acotadas a un identificador concreto y verificadas
+      # contra el archivo de prueba vulnerable (no asumidas):
+      #
+      #   `schema` — el nombre del schema del tenant. No puede ir parametrizado (SQL no
+      #   admite un identificador como parámetro) y cada repositorio lo revalida contra
+      #   TenantSlug.PATTERN y lo comilla antes de usarlo (AC-05).
+      #
+      #   `sql + "literal"` — el patrón de AC-06b: sobre una consulta ya armada se
+      #   agrega un FRAGMENTO LITERAL (` AND service_id = ?`) cuyo valor viaja como
+      #   parámetro posicional. Lo concatenado es texto fijo escrito en el archivo, no
+      #   entrada de usuario.
+      #
+      # La exclusión es por NOMBRE de variable a propósito: se apoya en que esos dos
+      # identificadores están auditados en este repositorio, no en una heurística
+      # general de "concatenar literales es seguro" — que sería falsa, porque la
+      # inyección clásica `"... '" + userInput + "'"` TAMBIÉN termina en un literal.
+      - pattern-not-regex: '\+\s*schema\s*\+'
+      - pattern-not-regex: '\bsql\s*\+\s*"'
+    message: >-
+      Concatenación en una query JDBC. El único identificador interpolable es el schema
+      del tenant (revalidado y comillado, AC-05); cualquier valor va como parámetro
+      posicional (?).
+    languages: ["java"]
+    severity: ERROR
+
+  # Ampliación 2 — JPQL. El todo.md de Sub-fase 8 lo pedía explícitamente y no existía.
+  # JPQL no es SQL, pero la inyección es igual de real: `@Query("..." + var)` o
+  # `createQuery("..." + var)` concatenan lo mismo, con el agravante de que Hibernate
+  # traduce la cadena después — no la valida.
+  - id: no-string-jpql
+    patterns:
+      - pattern-either:
+          - pattern: $EM.createQuery($A + $B, ...)
+          - pattern: $EM.createQuery($A + $B)
+          - pattern: $EM.createNativeQuery($A + $B, ...)
+          - pattern: $EM.createNativeQuery($A + $B)
+    message: >-
+      Concatenación en JPQL/consulta nativa. Usar parámetros nombrados (:param) o
+      posicionales (?1) — Hibernate traduce la cadena, no la valida.
     languages: ["java"]
     severity: ERROR

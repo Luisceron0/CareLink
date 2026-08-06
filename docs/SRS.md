@@ -943,7 +943,7 @@ the task-level breakdown; the sub-fases themselves are normative here:
 | 5 | Interconsultations (with per-request revocation check) | Fase 2, 4 | Done |
 | 6 | Labs + Pharmacy | Fase 2 | Done |
 | 7 | Frontend (React + Vite, role-based SPA) covering Fases 1–6 | Fase 6 | Done |
-| 8 | Security verification end-to-end: sqlmap, semgrep rule extension, CI gates blocking | Fase 7 | Not started |
+| 8 | Security verification end-to-end: sqlmap, semgrep rule extension, CI gates blocking | Fase 7 | Done — report in `docs/security/AUDIT-2026-08-06.md` |
 
 ### 16.3 Specified — deliberately not built
 
@@ -1254,7 +1254,7 @@ Confirmed live over HTTP against `docker compose`: with 4 patients the response 
 fifth, `{"suppressed": false, "results": [{"distinctPatients": 5, …}]}`; and an
 unrelated diagnosis returns `{"suppressed": false, "message": "No hay casos previos…"}`.
 
-| AC-11 | No SQLi, header vector included | `sqlmap --level 3`, report committed |
+| AC-11 | No SQLi, header vector included | `sqlmap --level 3`, report committed — **Pass**, `docs/security/AUDIT-2026-08-06.md` §4 |
 | AC-13 | Interconsultation access denied after closure | Integration test — grant, close, re-request, expect 403 — **Pass** (see below) |
 
 **Status, Sub-fase 5:** AC-13 — **Pass**. `InterconsultationLifecycleIT` asserts the

@@ -2,7 +2,7 @@
 #
 #   docker compose up
 #
-# Levanta backend + PostgreSQL 16 + frontend (placeholder hasta Sub-fase 7).
+# Levanta backend + PostgreSQL 16 + frontend (SPA React, ADR-014) + Mailpit.
 # Entornos reales del proyecto: local (este archivo) y CI. No hay demo público ni
 # producción (ADR-015, SRS §1.6/§15.1) — este compose no es un artefacto de deploy.
 
@@ -116,7 +116,13 @@ services:
     ports:
       - "${FRONTEND_PORT:-5173}:80"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      # 127.0.0.1 y no `localhost`: dentro del contenedor, `localhost` resuelve
+      # primero a ::1 y nginx con `listen 80` solo bindea IPv4, así que el healthcheck
+      # daba "connection refused" y marcaba unhealthy un servicio que respondía
+      # perfectamente por el puerto publicado. Hallazgo de la auditoría de Sub-fase 8:
+      # un healthcheck siempre en rojo es tan inútil como uno siempre en verde — en
+      # ambos casos deja de ser una señal.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
       interval: 10s
       timeout: 5s
       retries: 6

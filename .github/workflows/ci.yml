@@ -35,6 +35,34 @@ jobs:
             exit 1
           fi
 
+      # Agregado por la auditoría de Sub-fase 8, a raíz de un hallazgo real:
+      # TokenHasher caía a `getOrDefault("REFRESH_TOKEN_HMAC_SECRET", "dev-refresh-secret")`,
+      # o sea hasheaba refresh tokens con un secreto escrito en el repositorio si
+      # faltaba la variable de entorno. El gate de AC-04 NO lo detectó: busca la
+      # cadena literal `dev-secret`, que no matchea `dev-refresh-secret`.
+      #
+      # La lección es que un gate que busca UN literal solo detecta ese literal.
+      # Este busca el PATRÓN estructural —un secreto leído con valor por defecto—
+      # que es la forma del defecto, no una de sus instancias. Cubre el caso que
+      # el gate anterior dejaba pasar y los que todavía no existen.
+      # La segunda parte del grep (el `grep -vE`) excluye nombres que CONTIENEN una
+      # palabra sensible pero no son secretos: REFRESH_TOKEN_TTL_DAYS lleva "TOKEN" y
+      # tiene un default legítimo ("7"). Sin esa exclusión el gate daría un falso
+      # positivo permanente, y un gate que grita sin razón termina desactivado — que es
+      # el mismo final que el `|| true` que esta sesión ya sacó una vez. Un gate solo
+      # sirve si su rojo significa algo.
+      - name: Secretos sin default permisivo (auditoría Sub-fase 8)
+        run: |
+          hits=$(grep -rnE 'getOrDefault\("[A-Z_]*(SECRET|KEY|PASSWORD|TOKEN|CREDENTIAL)[A-Z_]*"\s*,\s*"[^"]+"' \
+                   services/*/src/main --include=*.java 2>/dev/null \
+                 | grep -vE '(TTL|TIMEOUT|_DAYS|_SECONDS|_MS|_MAX|_MIN|LENGTH|COUNT|ENABLED|ALLOWLIST)' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Un secreto se lee con valor por defecto. Sin la variable configurada la"
+            echo "::error::aplicación arrancaría con una credencial pública. Debe fallar el arranque."
+            echo "$hits"
+            exit 1
+          fi
+
       # Sin `-DskipTests` y sin `|| true`. El primero de los dos venía ocultando
       # que el reactor ni siquiera compilaba (tres módulos stub sin
       # <relativePath>, eliminados en Sub-fase 0); el segundo hubiera ocultado
