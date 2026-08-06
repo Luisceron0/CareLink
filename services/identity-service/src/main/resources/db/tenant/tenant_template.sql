@@ -262,3 +262,82 @@ GRANT SELECT, INSERT ON vital_signs TO {{app_role}};
 -- UPDATE sobre health_interventions: registrar el outcome (FR-CLN-05) es un UPDATE
 -- sobre la intervención ya creada, no una fila nueva.
 GRANT SELECT, INSERT, UPDATE ON health_interventions TO {{app_role}};
+
+-- ============================================================================
+-- Sub-fase 5 — Interconsultas (FR-CLN-08, FR-CLN-09, FR-CLN-10).
+-- ============================================================================
+
+-- InterconsultationRequest. El acceso del especialista al paciente se DERIVA del
+-- estado de esta fila en cada request (FR-CLN-10): no hay ninguna tabla de
+-- "permisos concedidos" que mantener sincronizada, ni un flag "tiene acceso" que
+-- pueda quedar viejo. Cerrar la interconsulta es un UPDATE de `status`, y eso
+-- basta para que el siguiente request del especialista sea denegado.
+--
+-- Por qué importa modelarlo así y no con una tabla de permisos: un permiso
+-- persistido es un estado que hay que acordarse de revocar; derivarlo del estado
+-- de la interconsulta hace que "olvidarse de revocar" no sea un caso posible.
+--
+-- `status`: OPEN | CLOSED. Constraint de base y no solo validación de aplicación —
+-- es la columna de la que depende una garantía de seguridad (§8.1, revocación
+-- temporal), y un valor inesperado acá haría que la comparación `= 'OPEN'` falle
+-- de formas silenciosas.
+CREATE TABLE interconsultation_requests (
+    id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    patient_id             UUID        NOT NULL,
+    clinical_encounter_id  UUID        NOT NULL,
+    requesting_physician_id UUID       NOT NULL,
+    specialist_user_id     UUID        NOT NULL,
+    question               TEXT        NOT NULL,  -- cifrado
+    status                 TEXT        NOT NULL DEFAULT 'OPEN',
+    requested_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    closed_at              TIMESTAMPTZ,
+    service_id             TEXT,                  -- AC-06b (del servicio que la solicita)
+
+    CONSTRAINT interconsultation_status_valid CHECK (status IN ('OPEN', 'CLOSED'))
+);
+
+CREATE INDEX idx_interconsultations_specialist ON interconsultation_requests (specialist_user_id, patient_id, status);
+CREATE INDEX idx_interconsultations_patient ON interconsultation_requests (patient_id);
+
+-- InterconsultationResponse. Uno a uno con el request (§10: "has one"), en tabla
+-- propia y no fusionado como el outcome de una intervención: acá no hay un índice
+-- compuesto que obligue a lo contrario, y separar deja explícito que la respuesta
+-- es un acto posterior de otra persona.
+CREATE TABLE interconsultation_responses (
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    interconsultation_id UUID        NOT NULL UNIQUE
+        REFERENCES interconsultation_requests(id) ON DELETE RESTRICT,
+    specialist_user_id   UUID        NOT NULL,
+    opinion              TEXT        NOT NULL,  -- cifrado
+    responded_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Prescription (FR-CLN-09). Se crea acá y no en Sub-fase 6 porque FR-CLN-09 la
+-- necesita: una prescripción originada en una interconsulta debe vincularse al
+-- encounter RAÍZ para trazabilidad completa. `clinical_encounter_id` es NOT NULL
+-- justamente por eso — una prescripción sin encounter de origen no es trazable, que
+-- es la propiedad que este requisito pide.
+--
+-- `interconsultation_id` nullable: una prescripción puede nacer de un encounter
+-- normal, sin interconsulta de por medio.
+CREATE TABLE prescriptions (
+    id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    patient_id             UUID        NOT NULL,
+    clinical_encounter_id  UUID        NOT NULL,
+    interconsultation_id   UUID        REFERENCES interconsultation_requests(id) ON DELETE RESTRICT,
+    prescriber_user_id     UUID        NOT NULL,
+    medication             TEXT        NOT NULL,  -- cifrado
+    dosage                 TEXT,                  -- cifrado
+    instructions           TEXT,                  -- cifrado
+    prescribed_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    service_id             TEXT,                  -- AC-06b
+
+    CONSTRAINT prescriptions_encounter_required CHECK (clinical_encounter_id IS NOT NULL)
+);
+
+CREATE INDEX idx_prescriptions_patient ON prescriptions (patient_id);
+CREATE INDEX idx_prescriptions_encounter ON prescriptions (clinical_encounter_id);
+
+GRANT SELECT, INSERT, UPDATE ON interconsultation_requests TO {{app_role}};
+GRANT SELECT, INSERT ON interconsultation_responses TO {{app_role}};
+GRANT SELECT, INSERT ON prescriptions TO {{app_role}};

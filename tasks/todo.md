@@ -429,12 +429,38 @@ construir en 8 frentes a la vez.
       k-anonimato protege). Lanza en vez de ignorar el filtro: ignorarlo devolvería un
       conjunto MÁS AMPLIO que el pedido presentándolo como el pedido.
 
-## Sub-fase 5: Interconsultas
-- [ ] `InterconsultationRequest` + `InterconsultationResponse` — FR-CLN-08
-- [ ] Validación de acceso del `SPECIALIST` **en cada request**, nunca cacheada — FR-CLN-10
-- [ ] `Prescription` originada en interconsulta se vincula al `ClinicalEncounter` raíz —
+## Sub-fase 5: Interconsultas — cerrada 2026-08-05
+- [x] `InterconsultationRequest` + `InterconsultationResponse` — FR-CLN-08
+      Responder solo es posible sobre una interconsulta ABIERTA y dirigida a ese
+      especialista: responder una cerrada sería escribir en una historia clínica a la
+      que ya no se tiene acceso.
+- [x] Validación de acceso del `SPECIALIST` **en cada request**, nunca cacheada — FR-CLN-10
+      No hay tabla de permisos ni fila de "concedido": cada request reejecuta una
+      consulta (`¿existe interconsulta OPEN para este especialista y este paciente?`).
+      Cerrar es un `UPDATE status` y con eso la siguiente evaluación devuelve false —
+      no hay un segundo paso de revocación que alguien pueda olvidar, porque lo que
+      habría que revocar nunca se persistió. El acceso es POR PACIENTE, no un permiso
+      general del especialista.
+      **Interacción deliberada con AC-06b:** el especialista suele estar en OTRO
+      servicio que el médico solicitante (es el punto de una interconsulta), así que
+      filtrar por servicio le negaría justo el acceso que la interconsulta concede.
+      Para `SPECIALIST`, la comprobación de interconsulta abierta REEMPLAZA al filtro
+      de servicio — es un permiso más ESTRECHO, no más amplio: por paciente y con
+      vencimiento al cerrar, contra uno permanente y de todo el departamento.
+- [x] `Prescription` originada en interconsulta se vincula al `ClinicalEncounter` raíz —
       FR-CLN-09
-- [ ] Test: grant → close → nuevo request del specialist → 403 — AC-13
+      El `clinical_encounter_id` sale de la interconsulta, NUNCA del body, así que el
+      cliente no puede colgar la prescripción de otro encounter. `NOT NULL`: una
+      prescripción sin encounter de origen no es trazable, y la trazabilidad es el
+      requisito entero.
+- [x] Test: grant → close → nuevo request del specialist → 403 — AC-13
+      `InterconsultationLifecycleIT` (5 tests) con contrapeso en ambos extremos: antes
+      de que exista la interconsulta NO hay acceso (sin eso, un método que devolviera
+      siempre false pasaría la mitad de "revocado" sin probar nada), con ella abierta
+      sí, y tras cerrar la misma llamada devuelve false. Verificado en vivo por HTTP:
+      SPECIALIST de Cardiologia (otro servicio que el PHYSICIAN de Urgencias) lee 200,
+      responde 200, prescribe 201 sobre el encounter raíz; el médico cierra; el MISMO
+      JWT del especialista, sin re-login, obtiene 403 en leer, responder y prescribir.
 
 ## Sub-fase 6: Laboratorio + Farmacia
 - [ ] `LabOrder` + `LabResult` con flag de valor crítico — FR-CLN-11
