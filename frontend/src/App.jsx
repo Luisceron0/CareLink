@@ -33,7 +33,13 @@ const NAV = [
 ];
 
 export default function App() {
-  const { session, logout } = useAuth();
+  const { session, logout, restoring } = useAuth();
+
+  // Mientras se intenta reconstruir la sesión desde la cookie de refresh (ver
+  // AuthContext), no se decide todavía "mostrar login" — eso confundiría un F5 con
+  // sesión válida con un logout real. Vacío a propósito, no un spinner: la espera es
+  // de milisegundos (una request local) y un spinner que parpadea es peor UX que nada.
+  if (restoring) return null;
 
   if (!session) return <Login />;
 
@@ -51,7 +57,11 @@ export default function App() {
           </div>
           <div className="flex items-center gap-4 text-sm">
             <span className="text-slate-600">
-              {session.email} · <strong>{session.role}</strong>
+              {session.email && <>{session.email} · </>}
+              {/* email es null tras restaurar la sesión desde /refresh (no viaja en
+                  esa respuesta ni en el JWT) — sin el condicional quedaba un "·"
+                  colgando al inicio. */}
+              <strong>{session.role}</strong>
               {session.serviceId && <> · {session.serviceId}</>}
             </span>
             <button onClick={logout} className="text-slate-600 underline hover:text-slate-900">Salir</button>

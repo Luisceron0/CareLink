@@ -646,3 +646,48 @@ Las decisiones de diseño no cubiertas por el SRS —derivación de clave por te
 de almacenamiento de `InterventionOutcome`, el Motor de Conocimiento sin filtro por
 servicio, el filtro de edad que falla ruidosamente— quedaron documentadas donde se
 toman, con el razonamiento, no solo con el resultado.
+
+## Auditoría de portafolio (2026-08-07) — limpieza + verificación adversarial
+Reporte completo: `docs/security/AUDIT-2026-08-07.md`. A pedido explícito del autor:
+limpieza profunda del repo, luego auditoría exhaustiva, commit solo al terminar.
+
+- [x] Limpieza de archivos/código obsoleto — `docs/API.md`, `docs/DATA_MODEL.md`,
+      `docs/archive/`, tres excepciones de dominio nunca lanzadas
+      (`AccountLockedException`, `EmailNotVerifiedException`, `InvalidTaxIdException`),
+      dos métodos placeholder vacíos en `AuthController`, `test_identity.db` físico.
+      Cada eliminación verificada por grep de cero referencias antes de borrar.
+- [x] Strix (github.com/usestrix/strix) — instalado, pero **no se pudo ejecutar**:
+      requiere una API key de LLM propia (`STRIX_LLM`/`LLM_API_KEY`) no disponible en
+      este entorno. No se usó ninguna credencial sin autorización explícita. Sustituido
+      por una batería adversarial manual cubriendo las mismas categorías (cross-tenant,
+      bypass de rol, JWT, rate limiting, SQLi).
+- [x] **Hallazgo real (severidad alta), corregido: `AUDITOR` podía leer PHI completa**
+      (pacientes, encuentros, admisiones, diario, laboratorio, interconsultas) — pese a
+      que SRS §4 dice explícitamente "no PHI read path". Causa: `AUDITOR` está en
+      `SERVICE_SCOPE_EXEMPT_ROLES` (ve todo el tenant) bajo el supuesto de que otro
+      control se lo impediría, y ese control nunca se construyó en 6 de 8 controllers
+      clínicos. `ClinicalRequestScope.hasPhiReadAccess()` nuevo, cableado en los 6 GET
+      afectados. Regresión: `AuditorHasNoPhiReadAccessIT`. Verificado en vivo (403
+      antes 200, PHYSICIAN sigue en 200).
+      **Alcance deliberadamente acotado:** no se redefinió toda la matriz rol×recurso
+      (p. ej. si PHARMACIST debería leer un encounter arbitrario del mismo servicio) —
+      el SRS no lo especifica con la misma claridad que el caso AUDITOR, y tocarlo bajo
+      presión de tiempo arriesgaba romper flujos ya verificados sin una base clara
+      contra la cual corregir. **Queda como gap abierto, nombrado, no resuelto en
+      silencio.**
+- [x] **Hallazgo real (funcional), corregido: la SPA no restauraba la sesión al
+      recargar** — encontrado con agent-browser. El comentario de `client.js` ya
+      prometía que `/refresh` reconstruiría la sesión desde la cookie HttpOnly, pero
+      nada lo llamaba al montar la app. `AuthContext.jsx`: `useEffect` que intenta
+      `/refresh` una vez al montar. Verificado en un navegador real: login → F5 →
+      sesión intacta.
+- [ ] **Gap menor, no corregido:** `AUDITOR` no tiene ninguna vista en el frontend
+      (`NAV` de `App.jsx` no lo incluye en ninguna). No es un problema de seguridad
+      (el backend ya deniega correctamente cualquier lectura de PHI que intente) — es
+      que no se construyó una vista de solo-auditoría en Sub-fase 7 porque ninguna
+      sub-fase la pedía. Construir una vista nueva ahora sería expandir el alcance de
+      esta tarea (limpieza + corrección de hallazgos reales) a desarrollo de producto
+      no solicitado.
+- [x] Batería adversarial completa (cross-tenant IDOR, bypass de rol, JWT alterado,
+      `alg:none`, rate limiting, SQLi con `DROP TABLE` bien encodeado) — sin hallazgos
+      adicionales más allá de los dos de arriba. Detalle completo en el reporte.

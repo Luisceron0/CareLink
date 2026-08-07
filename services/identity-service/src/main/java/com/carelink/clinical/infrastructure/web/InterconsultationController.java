@@ -92,6 +92,14 @@ public class InterconsultationController {
     @GetMapping("/{id}")
     public ResponseEntity<?> get(@AuthenticationPrincipal AuthenticatedPrincipal principal,
                                   @PathVariable UUID id) {
+        // §4: AUDITOR no tiene PHI read path — hallazgo de la auditoría de portafolio
+        // (2026-08-07). Particularmente importante acá: sin este chequeo, AUDITOR caía
+        // en la rama de "resto de los roles" de abajo, que sí resuelve un ServiceScope
+        // (AUDITOR está en SERVICE_SCOPE_EXEMPT_ROLES) y devolvía la interconsulta
+        // completa, incluida la pregunta clínica.
+        if (!requestScope.hasPhiReadAccess(principal)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
         Optional<TenantSlug> tenantSlug = requestScope.tenantSlug(principal);
         if (principal == null || tenantSlug.isEmpty()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
