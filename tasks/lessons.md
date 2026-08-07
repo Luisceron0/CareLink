@@ -542,3 +542,41 @@ navegador real revela.
 verificarlas igual que cualquier otra afirmación de este proyecto, con la herramienta
 que puede verlas (acá, un navegador real, no un test de Java).
 **Tags:** #frontend #testing #ux
+
+## [2026-08-07] — Forzar CI a fallar una vez revela el siguiente fallo escondido detrás
+**Contexto:** el primer CI real sobre `main` falló en AC-04. Se corrigió, y el
+siguiente run falló en OWASP dependency-check — un fallo que existía desde antes pero
+que AC-04 nunca dejó ver. Se corrigió (`continue-on-error`), y el siguiente run falló
+en Gitleaks — que tampoco había llegado a correr nunca, porque OWASP cortaba el job
+antes de llegar a ese step.
+**Por qué pasa:** los steps de un job de GitHub Actions se ejecutan en secuencia, y uno
+que falla sin `continue-on-error` corta los que siguen. Si tres steps tienen problemas
+independientes, arreglar el primero no destapa los otros dos a la vez — los destapa uno
+por uno, en el orden del workflow, cada uno pareciendo "el último problema" hasta que
+deja de serlo.
+**Regla para el futuro:** cuando un CI que nunca corrió de verdad se enciende por
+primera vez (o después de un cambio grande de infraestructura), no asumir que un solo
+fix lo deja verde — cada fix es candidato a revelar el siguiente. Confirmar con un run
+real, no con la ausencia de errores conocidos.
+**Tags:** #ci #infraestructura
+
+## [2026-08-07] — React no ve un `.value =` directo sobre un input controlado
+**Contexto:** capturando el walkthrough con agent-browser, `eval` seteando
+`input.value = '1985-05-15'` sobre un `<input type=date>` de React parecía funcionar
+(`input.value` lo confirmaba) pero al releer el DOM un instante después volvía a estar
+vacío, y el submit fallaba con el campo como inválido.
+**Por qué pasa:** React intercepta el setter nativo de `value` para sus inputs
+controlados. Escribir `.value` directo cambia el DOM, pero React sigue creyendo que el
+valor es el de su estado interno (vacío) y lo re-escribe en el siguiente render —
+sin que dispare `onChange`, porque el evento nunca pasó por el tracker de React.
+**Corrección:** usar el setter nativo real antes de disparar el evento, para que
+React detecte el cambio como legítimo:
+```js
+const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+setter.call(input, '1985-05-15');
+input.dispatchEvent(new Event('input', { bubbles: true }));
+```
+**Regla para el futuro:** cualquier automatización de browser (agent-browser, Playwright
+`eval`, etc.) que necesite setear un input controlado de React vía JS directo — no vía
+`fill`/`type` simulando teclado — necesita este patrón, no una asignación simple.
+**Tags:** #frontend #testing #react
