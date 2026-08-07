@@ -453,3 +453,92 @@ lista de excepciones que crece con cada caso deja de ser una excepción acotada.
 escrito a propósito, igual que un gate de CI se verifica rompiéndolo. "0 hallazgos" solo
 significa algo si antes se comprobó que la regla es capaz de encontrar algo.
 **Tags:** #seguridad #testing #sast
+
+## [2026-08-07] — La limpieza de portafolio encontró código muerto que ningún test detecta porque nunca se ejecuta
+**Contexto:** a pedido explícito del usuario, limpieza profunda del repo antes de la
+presentación como portafolio: archivos de referencia obsoletos y código sobrante del
+propio proceso de desarrollo.
+**Lo que se encontró, todo verificado por grep antes de borrar (cero referencias fuera
+del propio archivo, en main y test):**
+- `docs/API.md`, `docs/DATA_MODEL.md` — stubs de la era v1.0/v2.0, literalmente "pendiente
+  de completar", describiendo un endpoint de registro que ya no existe en esa forma.
+  Contradecían la afirmación del propio README de que `docs/SRS.md` es "fuente de verdad
+  única... sin espejos" — eran, exactamente, espejos abandonados.
+- `docs/archive/` (SRS v1.0, plan v1.0) — conservados por una decisión explícita de
+  Sub-fase 0 ("no se borran, se mueven a archive"). Se revierte esa decisión ahora, a
+  pedido del usuario, con el cambio documentado acá en vez de reescribir la entrada
+  original de `todo.md` — el registro de qué se decidió CUANDO se decidió no se toca; lo
+  que cambia es una decisión nueva, no la historia de la anterior.
+- `AccountLockedException`, `EmailNotVerifiedException`, `InvalidTaxIdException` — tres
+  excepciones de dominio definidas y nunca lanzadas. `TaxId` valida con
+  `IllegalArgumentException` genérica, no con la excepción que su propio paquete
+  `domain/exception` sugiere que existe para eso — quedaron de un diseño anterior que se
+  abandonó sin limpiar el rastro.
+- `AuthController`: un método `user_id_check(UUID)` vacío ("placeholder to record use")
+  y un helper `session_repository(SessionRepository s) { return s; }` cuyo propio
+  comentario decía "to satisfy single-use creation" — ninguno de los dos hacía nada,
+  ambos en inglés en un codebase que comenta en español en todo el resto. Eliminados;
+  `verifyEmailUseCase.execute(token)` se llama directo y `sessionRepository` se pasa
+  directo a los casos de uso que lo necesitan.
+- `test_identity.db` — el archivo físico (ya gitignored y sin trackear desde Sub-fase 0)
+  seguía en disco. Borrado. **No es lo mismo que la purga de su historial de git**, que
+  sigue reservada a decisión explícita del autor.
+**Por qué esto es una lección y no solo limpieza:** ninguno de estos seis hallazgos lo
+detectó `mvn verify`, semgrep, ni la auditoría de Sub-fase 8 — no porque las
+herramientas fallaran, sino porque código muerto no tiene una ejecución que un test
+pueda fallar. `grep` para uso real (no solo la definición) es la única forma de
+encontrarlo, y hay que correrlo a propósito: ninguna herramienta de este proyecto lo
+hace de manera automática.
+**Regla para el futuro:** un repo de portafolio se lee de punta a punta, no solo se
+testea. La pregunta correcta no es "¿esto rompe algo si lo dejo?" sino "¿alguien que lea
+este archivo entero se pregunta por qué existe?".
+**Tags:** #limpieza #deuda-técnica #portafolio
+
+## [2026-08-07] — `AUDITOR` podía leer PHI completa: un rol "exento de filtro" sin nada más que lo filtrara
+**Contexto:** una batería adversarial sistemática (parte de la auditoría de portafolio,
+pedida explícitamente por el usuario) probó cada rol contra cada endpoint clínico. Un
+`AUDITOR` autenticado leía pacientes y encuentros clínicos completos — 200, no 403.
+**Error cometido:** al construir AC-06b, `AUDITOR` se agregó a
+`SERVICE_SCOPE_EXEMPT_ROLES` junto con `TENANT_ADMIN` — ambos "ven todo el tenant sin
+filtrar por servicio" — con el razonamiento de que el alcance de `AUDITOR` ya estaba
+restringido "de otra forma" (§4: "Audit log only"). Esa "otra forma" nunca se
+construyó: 6 de los 8 controllers clínicos no tenían NINGÚN chequeo de rol en sus GET,
+solo tenant y servicio. Un rol que se asume restringido por un control que no existe no
+está restringido por nada.
+**Por qué ningún test anterior lo agarró:** todos los tests de cada sub-fase probaban
+el rol CORRECTO contra su propio endpoint (PHYSICIAN leyendo un encounter, NURSE
+escribiendo el diario) — nadie había probado sistemáticamente "¿qué puede leer un rol
+que en teoría no debería poder leer nada clínico?" hasta esta auditoría adversarial
+dedicada.
+**Corrección:** `ClinicalRequestScope.hasPhiReadAccess()`, acotado al caso que el SRS
+deja inequívoco (AUDITOR). Deliberadamente NO se redefinió la matriz completa de qué
+rol lee qué recurso — esa pregunta más fina no está especificada con la misma claridad,
+y resolverla en silencio bajo presión de tiempo es exactamente lo que el proyecto evita
+en cualquier otra decisión de diseño no cubierta. Queda nombrada como gap abierto.
+**Regla para el futuro:** cuando un rol se marca "exento" de un control (acá, del
+filtro por servicio) razonando que "ya está restringido por otro lado", ese otro lado
+tiene que existir y verificarse, no asumirse. Un test que prueba "el rol correcto
+accede a lo suyo" nunca prueba "el rol incorrecto NO accede a nada" — son afirmaciones
+distintas y ambas necesitan su propio test.
+**Tags:** #seguridad #autorización #auditoría
+
+## [2026-08-07] — Un comentario que promete un comportamiento no es el comportamiento
+**Contexto:** `client.js` decía, desde que se escribió en Sub-fase 7: "el costo es que
+un F5 pierde la sesión hasta que /refresh la reconstruye desde la cookie". Un pase de
+E2E con agent-browser (recargar la página tras loguearse) mostró que un F5 SIEMPRE
+mostraba el login — `/refresh` nunca se llamaba al montar la aplicación.
+**Error cometido:** el comentario describía la intención de diseño (la cookie HttpOnly
+existe justamente para permitir esa reconstrucción silenciosa) pero nadie conectó esa
+intención con un `useEffect` real que la ejecutara. El comentario quedó describiendo
+un comportamiento que el código nunca tuvo.
+**Por qué no lo agarró nada antes:** ningún test de frontend existe en este proyecto
+(no había suite de este tipo planeada para Sub-fase 7), y ningún test de backend
+ejercita el flujo de "recargar el navegador" porque eso no es algo que un test de
+Java pueda ver — es específicamente un comportamiento del lado del cliente que solo un
+navegador real revela.
+**Corrección:** `AuthContext.jsx` ahora llama a `/refresh` una vez al montar.
+**Regla para el futuro:** un comentario que describe "lo que debería pasar" en vez de
+"por qué pasa lo que pasa" es una promesa, no documentación — y las promesas hay que
+verificarlas igual que cualquier otra afirmación de este proyecto, con la herramienta
+que puede verlas (acá, un navegador real, no un test de Java).
+**Tags:** #frontend #testing #ux

@@ -70,6 +70,11 @@ public class PatientController {
     @GetMapping("/{id}")
     public ResponseEntity<?> get(@AuthenticationPrincipal AuthenticatedPrincipal principal,
                                   @PathVariable UUID id) {
+        // §4: AUDITOR no tiene PHI read path. Hallazgo de la auditoría de portafolio
+        // (2026-08-07) — este chequeo no existía, ver el javadoc de hasPhiReadAccess.
+        if (!requestScope.hasPhiReadAccess(principal)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
         Optional<com.carelink.identity.domain.value.TenantSlug> tenantSlug = requestScope.tenantSlug(principal);
         if (tenantSlug.isEmpty()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();

@@ -154,6 +154,11 @@ public class ClinicalEncounterController {
     @GetMapping("/{id}")
     public ResponseEntity<?> get(@AuthenticationPrincipal AuthenticatedPrincipal principal,
                                   @PathVariable UUID id) {
+        // §4: AUDITOR no tiene PHI read path — hallazgo de la auditoría de portafolio
+        // (2026-08-07), ver el javadoc de ClinicalRequestScope.hasPhiReadAccess.
+        if (!requestScope.hasPhiReadAccess(principal)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
         Optional<TenantSlug> tenantSlug = requestScope.tenantSlug(principal);
         if (tenantSlug.isEmpty()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();

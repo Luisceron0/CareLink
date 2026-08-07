@@ -71,8 +71,7 @@ export JAVA_HOME=/path/a/tu/jdk-21
   estado real (§18) viven ahí, no repartidos en documentos que puedan divergir.
 - `docs/adr/` — decisiones arquitectónicas standalone, incluidas las superadas.
 - `docs/security/` — reportes de auditoría, con hallazgos, severidad y evidencia.
-- `docs/archive/` — los SRS de origen (CareLink v1.0, plan v1.0), conservados como
-  insumo histórico.
+- `docs/portfolio/` — guion de walkthrough para grabación.
 - `services/identity-service/src/main/resources/db/migration/` — migraciones Flyway.
 - `tasks/` — plan activo (`todo.md`, una tarea = un commit) y lecciones aprendidas
   (`lessons.md`) — los defectos reales encontrados durante la construcción, con su causa

@@ -55,15 +55,12 @@ public class AuthController {
         this.loginUseCase = new LoginUseCase(userRepository, passwordEncoder, sessionRepository);
         this.verifyEmailUseCase = new VerifyEmailUseCase(tokenRepository);
         this.acceptInvitationUseCase = new AcceptInvitationUseCase(tokenRepository, userRepository, passwordEncoder);
-        this.refreshTokenUseCase = new RefreshTokenUseCase(session_repository(sessionRepository));
-        this.logoutUseCase = new LogoutUseCase(session_repository(sessionRepository));
+        this.refreshTokenUseCase = new RefreshTokenUseCase(sessionRepository);
+        this.logoutUseCase = new LogoutUseCase(sessionRepository);
         this.jwtService = jwtService;
         this.userRepository = userRepository;
         this.loginRateLimiter = loginRateLimiter;
     }
-
-    // helper to satisfy single-use creation while keeping code explicit
-    private static SessionRepository session_repository(SessionRepository s) { return s; }
 
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody RegisterTenantRequest req) {
@@ -113,7 +110,12 @@ public class AuthController {
 
     @PostMapping("/verify")
     public ResponseEntity<?> verify(@RequestParam("token") String token) {
-        user_id_check(verifyEmailUseCase.execute(token));
+        // El único efecto hoy es consumir el token (VerifyEmailUseCase lo borra tras
+        // resolverlo) — no existe todavía una columna `verified` en `users` que este
+        // resultado pueda marcar (gap conocido, documentado en SRS.md "Known gaps").
+        // No se resuelve acá: es una ampliación de esquema fuera del alcance de esta
+        // limpieza, no un placeholder que haya que rellenar en silencio.
+        verifyEmailUseCase.execute(token);
         return ResponseEntity.ok(Map.of("verified", true));
     }
 
