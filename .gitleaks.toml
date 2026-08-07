@@ -1,0 +1,27 @@
+title = "CareLink gitleaks config"
+
+[extend]
+useDefault = true
+
+# Los cuatro hallazgos de gitleaks del primer run real de CI sobre este código
+# (2026-08-07) son fixtures de test, no secretos reales:
+#   - AesGcmEncryptionServiceTest: MASTER_KEY es un literal base64 de
+#     "12345678901234567890123456789012" — una cadena de dígitos, no una clave.
+#   - VaultKeyProviderTest: el PEM se genera en runtime con KeyPairGenerator —
+#     un par de claves nuevo en cada corrida, nunca el mismo valor dos veces.
+#   - EmbeddedPostgresSupport: TEST_CLINIC_ENCRYPTION_KEY ya lleva un comentario
+#     explícito diciendo que no es un secreto real, fijo para que los tests sean
+#     reproducibles sin depender de una variable de entorno.
+#
+# Se excluyen por ruta exacta, no desactivando la regla completa ni el gate: así
+# sigue activo sobre cualquier otro archivo, incluido cualquier otro test que sí
+# llegue a tener un secreto real pegado por error.
+[allowlist]
+  paths = [
+    # El paquete se movió de com.carelink.identity a com.carelink.clinical en
+    # algún punto de la historia — el regex cubre las dos rutas para que el
+    # allowlist no dependa de en qué commit se mire.
+    '''services/identity-service/src/test/java/com/carelink/(clinical|identity)/infrastructure/encryption/AesGcmEncryptionServiceTest\.java''',
+    '''services/identity-service/src/test/java/com/carelink/identity/infrastructure/security/VaultKeyProviderTest\.java''',
+    '''services/identity-service/src/test/java/com/carelink/identity/support/EmbeddedPostgresSupport\.java''',
+  ]
