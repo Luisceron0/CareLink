@@ -1,5 +1,9 @@
 # Guion de walkthrough — checklist para grabar
 
+**El video todavía no está grabado.** Mientras tanto, [SCREENSHOTS.md](SCREENSHOTS.md) cubre las
+mismas seis escenas con capturas reales contra el stack corriendo — no es un sustituto completo
+(falta el ritmo y la narración), pero ya es evidencia verificable, no una promesa en un README.
+
 Sustituye al demo público que ADR-015 decidió no desplegar. El objetivo no es mostrar
 "que funciona" — es mostrar las decisiones de seguridad que un stack CRUD normal no
 tiene, con evidencia en pantalla, no en un README que hay que creerle.

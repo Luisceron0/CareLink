@@ -34,6 +34,14 @@ criterio de aceptación. Cada sub-fase termina en algo que corre: si el trabajo 
 hubiera cortado a mitad de camino, quedaba una demo funcional de lo construido hasta
 ahí, no ocho módulos a medias.
 
+## Demo
+
+[docs/portfolio/SCREENSHOTS.md](docs/portfolio/SCREENSHOTS.md) — capturas reales contra el
+stack corriendo: aislamiento de roles, un encuentro firmado que rechaza edición con 409,
+las dos caras del k-anonimato del motor de conocimiento, y el mismo JWT de un especialista
+pasando de 200 a 403 al cerrarse una interconsulta, sin volver a loguearse. El guion
+completo para grabar el video está en [docs/portfolio/WALKTHROUGH.md](docs/portfolio/WALKTHROUGH.md).
+
 ## Arranque local
 
 Requiere Docker.
