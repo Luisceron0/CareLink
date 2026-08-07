@@ -12,24 +12,72 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Run Java build (mvn -q -DskipTests)
+
+      # AC-03 — SRS §18.1. Un .db versionado no lo detecta un scanner de secrets
+      # (gitleaks matchea texto, no binarios) — necesita su propio chequeo.
+      # tasks/lessons.md, 2026-08-03.
+      - name: Tracked-database check (AC-03)
         run: |
-          if [ -f pom.xml ]; then mvn -q -DskipTests package || true; fi
-      - name: Run Python tests
+          tracked_dbs=$(git ls-files '*.db')
+          if [ -n "$tracked_dbs" ]; then
+            echo "::error::Archivos .db versionados (AC-03 requiere ninguno):"
+            echo "$tracked_dbs"
+            exit 1
+          fi
+
+      # AC-04 — SRS §18.1. Segunda implementación de Identity, eliminada en
+      # ADR-010, no se vuelve a colar. HS256/dev-secret bajo services/ es la
+      # huella de esa implementación específica, no un lint genérico.
+      - name: Single-auth-implementation check (AC-04)
         run: |
-          if [ -f services/notification-service/pyproject.toml ]; then cd services/notification-service && pytest -q || true; fi
-      - name: Lint portals (placeholder)
-        run: echo "Run portal linting in real pipeline"
+          if grep -rn "HS256\|dev-secret" services/ 2>/dev/null; then
+            echo "::error::HS256 o dev-secret encontrado bajo services/ (AC-04) — ver ADR-010"
+            exit 1
+          fi
+
+      # Agregado por la auditoría de Sub-fase 8, a raíz de un hallazgo real:
+      # TokenHasher caía a `getOrDefault("REFRESH_TOKEN_HMAC_SECRET", "dev-refresh-secret")`,
+      # o sea hasheaba refresh tokens con un secreto escrito en el repositorio si
+      # faltaba la variable de entorno. El gate de AC-04 NO lo detectó: busca la
+      # cadena literal `dev-secret`, que no matchea `dev-refresh-secret`.
+      #
+      # La lección es que un gate que busca UN literal solo detecta ese literal.
+      # Este busca el PATRÓN estructural —un secreto leído con valor por defecto—
+      # que es la forma del defecto, no una de sus instancias. Cubre el caso que
+      # el gate anterior dejaba pasar y los que todavía no existen.
+      # La segunda parte del grep (el `grep -vE`) excluye nombres que CONTIENEN una
+      # palabra sensible pero no son secretos: REFRESH_TOKEN_TTL_DAYS lleva "TOKEN" y
+      # tiene un default legítimo ("7"). Sin esa exclusión el gate daría un falso
+      # positivo permanente, y un gate que grita sin razón termina desactivado — que es
+      # el mismo final que el `|| true` que esta sesión ya sacó una vez. Un gate solo
+      # sirve si su rojo significa algo.
+      - name: Secretos sin default permisivo (auditoría Sub-fase 8)
+        run: |
+          hits=$(grep -rnE 'getOrDefault\("[A-Z_]*(SECRET|KEY|PASSWORD|TOKEN|CREDENTIAL)[A-Z_]*"\s*,\s*"[^"]+"' \
+                   services/*/src/main --include=*.java 2>/dev/null \
+                 | grep -vE '(TTL|TIMEOUT|_DAYS|_SECONDS|_MS|_MAX|_MIN|LENGTH|COUNT|ENABLED|ALLOWLIST)' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Un secreto se lee con valor por defecto. Sin la variable configurada la"
+            echo "::error::aplicación arrancaría con una credencial pública. Debe fallar el arranque."
+            echo "$hits"
+            exit 1
+          fi
+
+      # Sin `-DskipTests` y sin `|| true`. El primero de los dos venía ocultando
+      # que el reactor ni siquiera compilaba (tres módulos stub sin
+      # <relativePath>, eliminados en Sub-fase 0); el segundo hubiera ocultado
+      # que ningún test corría en absoluto. `verify`, no `test`: activa failsafe,
+      # así que los `*IT` (AC-01, AC-02, AC-10) corren acá, no solo localmente.
+      - name: Build + tests (unit + integration) — SRS §15.3 paso 5
+        run: mvn -B verify
+
       - name: Semgrep (SAST)
         uses: returntocorp/semgrep-action@v1
 
+      # Bloqueante solo en CRITICAL (CVSS ≥ 9), como declara el SRS §15.3 paso 2
+      # ("fail on new CRITICAL") — no en cualquier hallazgo.
       - name: Java SCA (OWASP dependency-check)
-        run: |
-          if [ -f pom.xml ]; then mvn org.owasp:dependency-check-maven:check || true; fi
-
-      - name: Python SCA (pip-audit)
-        run: |
-          if [ -d services/notification-service ]; then python -m pip install --upgrade pip && python -m pip install pip-audit && (cd services/notification-service && pip-audit) || true; fi
+        run: mvn org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=9
 
       - name: Gitleaks (secret scanning)
         uses: zricethezav/gitleaks-action@v2

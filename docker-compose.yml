@@ -1,0 +1,131 @@
+# CareLink — stack local reproducible (ADR-012).
+#
+#   docker compose up
+#
+# Levanta backend + PostgreSQL 16 + frontend (SPA React, ADR-014) + Mailpit.
+# Entornos reales del proyecto: local (este archivo) y CI. No hay demo público ni
+# producción (ADR-015, SRS §1.6/§15.1) — este compose no es un artefacto de deploy.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-carelink}
+      # Rol administrador. En la imagen oficial de Postgres, un POSTGRES_USER
+      # distinto de "postgres" se crea como superusuario del cluster — es el rol
+      # que corre Flyway y provisiona schemas de tenant, nunca el que usa la
+      # aplicación en tráfico normal (AC-10).
+      POSTGRES_USER: ${POSTGRES_USER:-carelink}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-carelink_local_only}
+      # Los lee 01-create-app-role.sh para provisionar el rol restringido.
+      CARELINK_APP_DB_USER: ${CARELINK_APP_DB_USER:-carelink_app}
+      CARELINK_APP_DB_PASSWORD: ${CARELINK_APP_DB_PASSWORD:?definí CARELINK_APP_DB_PASSWORD en tu .env}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Corre UNA VEZ, al inicializar el volumen — antes de que el backend exista.
+      # Crea el rol restringido `carelink_app` (AC-10); ver el script para el porqué
+      # de que esto no se haga desde una migración de Flyway.
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+      # migrations/ (la carpeta de raíz) ya no existe — Flyway (services/identity-
+      # service/src/main/resources/db/migration) reemplazó las migraciones en
+      # conflicto que vivían ahí. Ver SRS §9.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-carelink} -d ${POSTGRES_DB:-carelink}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mailpit:
+    # Catcher SMTP local (§16.4: sin integración SMTP viva en este milestone —
+    # esto no envía nada afuera de la red de docker compose, solo lo recibe y lo
+    # muestra). FR-ID-01 y FR-ID-02 llaman a EmailNotifier de verdad (registro de
+    # tenant, invitación de usuario); sin algo escuchando en SMTP_HOST/SMTP_PORT,
+    # esas llamadas fallan con MailSendException/Connection refused — encontrado
+    # al verificar FR-ID-02 en vivo, tasks/lessons.md 2026-08-05. .env.example ya
+    # documentaba "MailHog/Mailpit" como la intención; nunca se había agregado el
+    # contenedor.
+    image: axllent/mailpit:v1.20
+    ports:
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8025/api/v1/info"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: services/identity-service/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+    environment:
+      # Nombre del servicio de compose, no "localhost" — el backend y mailpit son
+      # contenedores distintos en la misma red de compose.
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      DATABASE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-carelink}
+      # Rol restringido — lo usa JPA/Hibernate y el resto del tráfico normal
+      # (AC-10). El rol administrador (POSTGRES_USER/PASSWORD) solo lo usan
+      # Flyway y PostgresSchemaProvisioner, configurados aparte más abajo.
+      CARELINK_APP_DB_USER: ${CARELINK_APP_DB_USER:-carelink_app}
+      CARELINK_APP_DB_PASSWORD: ${CARELINK_APP_DB_PASSWORD:?definí CARELINK_APP_DB_PASSWORD en tu .env}
+      POSTGRES_USER: ${POSTGRES_USER:-carelink}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-carelink_local_only}
+      SERVER_PORT: 8080
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      APP_ENV: ${APP_ENV:-local}
+      # Contención (§15.2, AC-01). DemoModeGuard hace fallar el arranque si esto
+      # no es `true` — ya no es una variable sin efecto.
+      DEMO_MODE: ${DEMO_MODE:-true}
+      JWT_VAULT_PEM: ${JWT_VAULT_PEM:-}
+      JWT_VAULT_KID: ${JWT_VAULT_KID:-}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-900}
+      REFRESH_TOKEN_HMAC_SECRET: ${REFRESH_TOKEN_HMAC_SECRET:?definí REFRESH_TOKEN_HMAC_SECRET en tu .env}
+      REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-604800}
+      MAX_CONCURRENT_SESSIONS: ${MAX_CONCURRENT_SESSIONS:-3}
+      # AesGcmEncryptionService falla al arrancar sin esto (AC-09) — ya no es una
+      # variable sin efecto. 32 bytes en base64: `openssl rand -base64 32`.
+      CLINIC_ENCRYPTION_KEY: ${CLINIC_ENCRYPTION_KEY:?definí CLINIC_ENCRYPTION_KEY en tu .env (openssl rand -base64 32)}
+      KNOWLEDGE_ANONYMITY_THRESHOLD: ${KNOWLEDGE_ANONYMITY_THRESHOLD:-5}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  frontend:
+    # SPA React 18 + Vite + Tailwind (ADR-014), servida estática por nginx, que además
+    # hace de proxy de /api hacia el backend dentro de la red de compose. El frontend
+    # habla siempre con rutas relativas: no hay una URL de backend embebida en el bundle
+    # que haya que cambiar por entorno (ni que pueda quedar apuntando a otro lado).
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    healthcheck:
+      # 127.0.0.1 y no `localhost`: dentro del contenedor, `localhost` resuelve
+      # primero a ::1 y nginx con `listen 80` solo bindea IPv4, así que el healthcheck
+      # daba "connection refused" y marcaba unhealthy un servicio que respondía
+      # perfectamente por el puerto publicado. Hallazgo de la auditoría de Sub-fase 8:
+      # un healthcheck siempre en rojo es tan inútil como uno siempre en verde — en
+      # ambos casos deja de ser una señal.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+volumes:
+  pgdata:

@@ -23,6 +23,16 @@ node_modules/
 *.tfstate
 *.tfstate.backup
 
+# Databases — nunca versionadas.
+# Un .db con datos estructurados no lo detecta un scanner de secrets (gitleaks
+# matchea patrones de texto, no binarios). Este bloque + el gate de CI de
+# Sub-fase 1 (`git ls-files '*.db'` vacío, AC-03) son controles distintos:
+# este previene, el gate detecta. Ver tasks/lessons.md 2026-08-03.
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
 # General
 .DS_Store
 .idea/
@@ -33,3 +43,7 @@ node_modules/
 .env
 .env.local
 .env.*.local
+
+# Frontend (Sub-fase 7)
+frontend/node_modules/
+frontend/dist/

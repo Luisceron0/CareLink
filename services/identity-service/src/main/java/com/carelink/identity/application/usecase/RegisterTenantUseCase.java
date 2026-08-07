@@ -47,12 +47,14 @@ public class RegisterTenantUseCase {
         Tenant tenant = new Tenant(UUID.randomUUID(), name, slug, OffsetDateTime.now());
         tenantRepository.save(tenant);
 
-        // Provision tenant schema (adapter implemented in F1-T02)
-        schemaProvisioner.provisionSchema(slug.value());
+        // AC-05: se pasa el value object, no slug.value() — el String crudo no vuelve
+        // a existir entre el dominio y el sink que arma DDL con él.
+        schemaProvisioner.provisionSchema(slug);
 
         // Create initial TENANT_ADMIN user
         String hashed = passwordEncoder.encode(rawPassword);
-        User admin = new User(UUID.randomUUID(), tenant.id(), new Email(adminEmail), "TENANT_ADMIN", new HashedPassword(hashed), OffsetDateTime.now());
+        User admin = new User(UUID.randomUUID(), tenant.id(), new Email(adminEmail), "TENANT_ADMIN", null, true,
+                new HashedPassword(hashed), OffsetDateTime.now());
         userRepository.save(admin);
 
         // Create verification token and send email

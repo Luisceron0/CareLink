@@ -88,11 +88,14 @@ public class JwksAndRefreshIntegrationTest {
             }
         }
 
-        class InMemoryTenantRepo implements com.carelink.identity.domain.port.TenantRepository { @Override public java.util.Optional<com.carelink.identity.domain.Tenant> findBySlug(String slug) { return java.util.Optional.empty(); } @Override public void save(com.carelink.identity.domain.Tenant tenant) {} }
+        class InMemoryTenantRepo implements com.carelink.identity.domain.port.TenantRepository { @Override public java.util.Optional<com.carelink.identity.domain.Tenant> findBySlug(String slug) { return java.util.Optional.empty(); } @Override public java.util.Optional<com.carelink.identity.domain.Tenant> findById(java.util.UUID id) { return java.util.Optional.empty(); } @Override public void save(com.carelink.identity.domain.Tenant tenant) {} }
 
-        class NoopSchemaProvisioner implements com.carelink.identity.domain.port.SchemaProvisioner { @Override public void provisionSchema(String tenantSlug) {} }
+        class NoopSchemaProvisioner implements com.carelink.identity.domain.port.SchemaProvisioner { @Override public void provisionSchema(com.carelink.identity.domain.value.TenantSlug tenantSlug) {} }
 
-        class NoopEmailNotifier implements com.carelink.identity.domain.port.EmailNotifier { @Override public void sendVerificationEmail(String to, String token) {} }
+        class NoopEmailNotifier implements com.carelink.identity.domain.port.EmailNotifier {
+            @Override public void sendVerificationEmail(String to, String token) {}
+            @Override public void sendInvitationEmail(String to, String token, String role) {}
+        }
 
         class InMemoryVerificationTokenRepo implements com.carelink.identity.domain.port.VerificationTokenRepository {
             private java.util.Map<String, java.util.UUID> map = new java.util.HashMap<>();
@@ -112,7 +115,7 @@ public class JwksAndRefreshIntegrationTest {
 
         UUID userId = UUID.randomUUID();
         UUID tenantId = UUID.randomUUID();
-        com.carelink.identity.domain.User u = new com.carelink.identity.domain.User(userId, tenantId, new com.carelink.identity.domain.value.Email("u@example.com"), "TENANT_ADMIN", new com.carelink.identity.domain.value.HashedPassword(pwd.encode("secret")), OffsetDateTime.now());
+        com.carelink.identity.domain.User u = new com.carelink.identity.domain.User(userId, tenantId, new com.carelink.identity.domain.value.Email("u@example.com"), "TENANT_ADMIN", null, true, new com.carelink.identity.domain.value.HashedPassword(pwd.encode("secret")), OffsetDateTime.now());
         userRepo.save(u);
 
         StaticKeyProvider staticKeyProvider = new StaticKeyProvider();
@@ -126,7 +129,8 @@ public class JwksAndRefreshIntegrationTest {
                 pwd,
                 new InMemoryVerificationTokenRepo(),
                 sessionRepo,
-                jwtService
+                jwtService,
+                new com.carelink.identity.infrastructure.security.LoginRateLimiter()
         );
 
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();

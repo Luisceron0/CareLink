@@ -1,1 +1,0 @@
--r services/api-gateway-identity/requirements.txt

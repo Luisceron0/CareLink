@@ -56,7 +56,7 @@ public class LoginUseCaseTest {
 
     @Test
     void successfulLoginCreatesSession() {
-        User u = new User(UUID.randomUUID(), UUID.randomUUID(), new Email("u@example.com"), "TENANT_ADMIN", new HashedPassword("enc:secret"), OffsetDateTime.now());
+        User u = new User(UUID.randomUUID(), UUID.randomUUID(), new Email("u@example.com"), "TENANT_ADMIN", null, true, new HashedPassword("enc:secret"), OffsetDateTime.now());
         userRepo.save(u);
 
         com.carelink.identity.domain.Session s = useCase.execute("u@example.com", "secret");

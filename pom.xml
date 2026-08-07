@@ -7,11 +7,15 @@
     <version>0.1.0</version>
     <packaging>pom</packaging>
 
+    <!-- Un solo módulo, a propósito. Los dos bounded contexts del sistema
+         —Identity y Clinical Records— viven dentro de identity-service, en
+         paquetes separados (SRS §3.3). Los sub-dominios clínicos (Patient,
+         Encounter, Triage, Diary, Knowledge Engine, Interconsultations, Labs,
+         Pharmacy) no se separan en servicios: ocho microservicios para un
+         proyecto de un solo desarrollador ya está documentado como error a
+         evitar, no como objetivo. -->
     <modules>
         <module>services/identity-service</module>
-        <module>services/scheduling-service</module>
-        <module>services/clinical-service</module>
-        <module>services/billing-service</module>
     </modules>
 
     <properties>

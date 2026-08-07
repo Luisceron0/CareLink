@@ -18,6 +18,12 @@ public class SecurityConfig {
         http.sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         http.authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/auth/**").permitAll()
+                // Liveness/readiness (SRS §14) — lo consulta el healthcheck de
+                // docker-compose. Solo `/actuator/health`, nunca `/actuator/**`:
+                // el resto de los endpoints de actuator exponen configuración,
+                // beans y variables de entorno. `management.endpoints.web.exposure`
+                // ya los deja fuera en application.yml; esto es la segunda capa.
+                .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                 .anyRequest().authenticated()
         );
         http.addFilterBefore(new JwtAuthenticationFilter(jwtService), UsernamePasswordAuthenticationFilter.class);

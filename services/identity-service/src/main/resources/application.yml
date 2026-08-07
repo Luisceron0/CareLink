@@ -1,0 +1,128 @@
+spring:
+  application:
+    name: carelink-identity
+
+  datasource:
+    # Rol restringido (AC-10). Este es el que usa JPA/Hibernate y el resto del
+    # tráfico normal de la aplicación — nunca el rol administrador. `carelink_app`
+    # no tiene grant de DELETE ni UPDATE sobre `audit_log` y no puede crear ni
+    # alterar tablas; lo provisiona un script de inicialización de Postgres, no
+    # esta aplicación (docker/postgres-init/01-create-app-role.sh).
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/carelink}
+    username: ${CARELINK_APP_DB_USER:carelink_app}
+    password: ${CARELINK_APP_DB_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # El esquema es de Flyway, no de Hibernate. `validate-on-migrate` deja que un
+    # archivo de migración ya aplicado no se pueda editar en silencio.
+    validate-on-migrate: true
+    # Flyway corre con el rol ADMINISTRADOR sobre la MISMA base física que
+    # spring.datasource.url — dos roles, una URL. `url` va explícita a propósito:
+    # el fallback automático de Spring Boot ("si spring.flyway.url no está,
+    # heredar la de spring.datasource") depende de que exista el bean interno
+    # `DataSourceProperties`, y ese bean deja de crearse en cuanto se define un
+    # DataSource propio (ver DataSourceConfig). Explicitar la URL acá evita
+    # depender de ese mecanismo implícito — es el mismo criterio que llevó a usar
+    # dos roles en primer lugar: preferir lo explícito sobre lo que "debería"
+    # funcionar solo.
+    #
+    # Es deliberado que sea un rol distinto al de la aplicación: si el rol de
+    # aplicación pudiera crear sus propias tablas, sería dueño de ellas, y en
+    # PostgreSQL el dueño de una tabla siempre puede volver a otorgarse cualquier
+    # permiso que se le revoque. AC-10 solo significa algo si quien puede hacer
+    # DDL y quien corre el tráfico normal son roles distintos.
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/carelink}
+    user: ${POSTGRES_USER:carelink}
+    password: ${POSTGRES_PASSWORD:}
+    # V3__grant_app_role.sql referencia ${app_db_user} — mismo valor que
+    # spring.datasource.username arriba, una sola fuente de verdad para "cuál es
+    # el rol al que hay que otorgarle permisos".
+    placeholders:
+      app_db_user: ${CARELINK_APP_DB_USER:carelink_app}
+
+  jpa:
+    # `none`, deliberadamente: el esquema lo versiona Flyway. Hibernate no crea ni
+    # modifica tablas — un `ddl-auto` que genera esquema hace que la base real
+    # dependa de las anotaciones JPA en vez del archivo versionado, y la diferencia
+    # entre ambos aparece recién en producción (que acá no existe, pero el hábito
+    # importa).
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          lob:
+            non_contextual_creation: true
+
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:1025}
+    username: ${SMTP_USER:}
+    password: ${SMTP_PASSWORD:}
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: never
+    include-stacktrace: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Solo `health`. El resto de los endpoints de actuator exponen
+        # configuración, beans y variables de entorno — esto no es una consola
+        # de administración. SecurityConfig repite la restricción por ruta.
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      # show-details queda en su default (`never`): la respuesta es {"status":"UP"},
+      # sin nombres de componentes ni detalles de infraestructura.
+  health:
+    mail:
+      # Apagado a propósito. §16.4 deja fuera toda integración viva de SMTP en
+      # este milestone, así que el indicador intentaba conectar a un servidor que
+      # por decisión no existe y reportaba el servicio entero como DOWN. Un health
+      # check sobre algo deliberadamente ausente no informa nada: falla siempre.
+      # Se vuelve a habilitar el día que exista un SMTP real que verificar.
+      enabled: false
+
+logging:
+  level:
+    root: ${LOG_LEVEL:INFO}
+
+carelink:
+  # Contención (SRS §1.6, §15.2). Lo aplica DemoModeGuard: si demo-mode no es true,
+  # si app-env es un valor de producción, o si la base no lleva el sello
+  # SYNTHETIC_DATA_ONLY, el arranque falla. AC-01 y AC-02.
+  # El default es `false` a propósito: arrancar sin configurar nada no debe
+  # funcionar. Un default permisivo convierte el control en un adorno.
+  demo-mode: ${DEMO_MODE:false}
+  app-env: ${APP_ENV:local}
+
+  # Cifrado de PHI (AES-256-GCM, ADR-003, §8.3). Sin default: si falta, el arranque
+  # falla al construir AesGcmEncryptionService en vez de cifrar con una clave vacía.
+  clinic-encryption-key: ${CLINIC_ENCRYPTION_KEY:}
+
+  # DataSource administrador — el mismo rol y credenciales que usa Flyway arriba,
+  # expuesto también como bean para operaciones que la aplicación necesita hacer
+  # con privilegios de DDL: hoy, provisionar el schema de un tenant nuevo
+  # (PostgresSchemaProvisioner). No lo usa JPA/Hibernate ni ningún repositorio de
+  # dominio — esos usan el DataSource primario, restringido.
+  admin-datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/carelink}
+    username: ${POSTGRES_USER:carelink}
+    password: ${POSTGRES_PASSWORD:}
+
+  # k-anonimato del Motor de Conocimiento (FR-CLN-07, ADR-007). Default 5, como
+  # declara §5.6. SearchKnowledgeUseCase rechaza el arranque si se configura por
+  # debajo de 2 — configurarlo hacia arriba (más estricto) es una decisión
+  # operativa legítima; hacia abajo hasta desactivarlo no lo es, y ADR-007 lo
+  # declara no negociable.
+  knowledge-anonymity-threshold: ${KNOWLEDGE_ANONYMITY_THRESHOLD:5}

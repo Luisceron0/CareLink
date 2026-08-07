@@ -5,6 +5,7 @@ import com.carelink.identity.domain.Tenant;
 import com.carelink.identity.domain.User;
 import com.carelink.identity.domain.value.Email;
 import com.carelink.identity.domain.value.HashedPassword;
+import com.carelink.identity.domain.value.TenantSlug;
 import com.carelink.identity.domain.port.TenantRepository;
 import com.carelink.identity.domain.port.UserRepository;
 import com.carelink.identity.domain.port.SchemaProvisioner;
@@ -20,6 +21,9 @@ import static org.junit.jupiter.api.Assertions.*;
 class InMemoryTenantRepo implements TenantRepository {
     private java.util.Map<String, Tenant> map = new java.util.HashMap<>();
     @Override public Optional<Tenant> findBySlug(String slug) { return Optional.ofNullable(map.get(slug)); }
+    @Override public Optional<Tenant> findById(java.util.UUID id) {
+        return map.values().stream().filter(t -> t.id().equals(id)).findFirst();
+    }
     @Override public void save(Tenant tenant) { map.put(tenant.slug().value(), tenant); }
 }
 
@@ -32,13 +36,17 @@ class InMemoryUserRepo implements UserRepository {
 
 class InMemorySchemaProvisioner implements SchemaProvisioner {
     public boolean provisioned = false;
-    @Override public void provisionSchema(String tenantSlug) { this.provisioned = true; }
+    @Override public void provisionSchema(TenantSlug tenantSlug) { this.provisioned = true; }
 }
 
 class InMemoryEmailNotifier implements EmailNotifier {
     public String lastTo;
     public String lastToken;
+    public String lastRole;
     @Override public void sendVerificationEmail(String to, String token) { this.lastTo = to; this.lastToken = token; }
+    @Override public void sendInvitationEmail(String to, String token, String role) {
+        this.lastTo = to; this.lastToken = token; this.lastRole = role;
+    }
 }
 
 class InMemoryPasswordEncoder implements PasswordEncoder {

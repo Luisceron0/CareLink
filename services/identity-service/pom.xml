@@ -11,6 +11,21 @@
     <artifactId>identity-service</artifactId>
     <packaging>jar</packaging>
 
+    <dependencyManagement>
+        <dependencies>
+            <!-- Fija los binarios de PostgreSQL embebido en la misma versión mayor que
+                 corre docker-compose y que declara el SRS §9. Si esto se desalinea, los
+                 tests pasan a verificar un motor distinto del que se ejecuta. -->
+            <dependency>
+                <groupId>io.zonky.test.postgres</groupId>
+                <artifactId>embedded-postgres-binaries-bom</artifactId>
+                <version>16.2.0</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -24,6 +39,12 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
+        <!-- Health checks liveness/readiness (SRS §14). Solo se expone `health`
+             (ver application.yml) — no es una consola de administración. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
         <dependency>
             <groupId>de.mkammerer</groupId>
             <artifactId>argon2-jvm</artifactId>
@@ -34,18 +55,36 @@
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
-        <!-- Embedded PostgreSQL for tests (no Docker/Testcontainers in CI) -->
+        <!-- Versionado de esquema (SRS §9). Se adopta acá, en Sub-fase 1, antes de
+             agregar la primera tabla nueva: migrations/ tenía dos archivos creando
+             `tenants` y `users` con formas incompatibles, y ambos con IF NOT EXISTS,
+             así que el esquema resultante dependía del orden lexicográfico. -->
         <dependency>
-            <groupId>com.opentable.components</groupId>
-            <artifactId>otj-pg-embedded</artifactId>
-            <version>0.13.4</version>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+        <!-- PostgreSQL embebido para tests de integración (SRS §13).
+             Zonky, no otj-pg-embedded de OpenTable: aquel empaquetaba PostgreSQL 10,
+             mientras el SRS especifica 16 y docker-compose corre 16. La diferencia no
+             era teórica — `gen_random_uuid()` es builtin desde PG 13 y fallaba — y lo
+             que se verifica acá son triggers, GRANTs y constraints, comportamiento
+             específico del motor. Un test de AC-10 sobre otra versión mayor no
+             evidencia AC-10. El §13 decía "Zonky" desde el principio; el código no lo
+             cumplía. La versión del binario se fija abajo, en dependencyManagement. -->
+        <dependency>
+            <groupId>io.zonky.test</groupId>
+            <artifactId>embedded-postgres</artifactId>
+            <version>2.0.7</version>
             <scope>test</scope>
         </dependency>
-        <!-- Kafka test utilities (embedded) -->
+        <!-- AuditAspect (AOP) intercepta @Auditable — FR-CLN-13, SRS §5.10. -->
         <dependency>
-            <groupId>org.springframework.kafka</groupId>
-            <artifactId>spring-kafka-test</artifactId>
-            <scope>test</scope>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -84,12 +123,86 @@
                     <version>3.11.0</version>
                     <configuration>
                         <release>21</release>
+                        <!-- Sin esto, AuditAspect no puede resolver sus expresiones
+                             SpEL contra nombres de parámetro reales: Parameter.getName()
+                             devuelve "arg0"/"arg1"/... y #tenantSlug evalúa a null en
+                             silencio (SpEL no lanza sobre una variable no definida) en
+                             vez de fallar ruidosamente. Spring 6 ya no cae al lector de
+                             bytecode ASM como fallback — -parameters es la única fuente. -->
+                        <parameters>true</parameters>
                     </configuration>
                 </plugin>
+                <!-- REFRESH_TOKEN_HMAC_SECRET para los tests.
+
+                     Desde la auditoría de Sub-fase 8, TokenHasher se niega a inicializarse
+                     sin este secreto (antes caía a un default escrito en el repositorio, o
+                     sea una credencial pública). Ese control es correcto y hace que la
+                     aplicación NO ARRANQUE sin configurarlo — incluida la que levantan los
+                     tests de contexto completo.
+
+                     El valor de acá es un secreto de test, deliberadamente obvio en su
+                     nombre: no protege nada porque los tests no guardan sesiones reales, y
+                     ser reconocible evita que alguien lo confunda con un secreto de
+                     verdad. No se puede setear desde código Java porque TokenHasher lee
+                     System.getenv, que en la JVM es de solo lectura. -->
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>3.1.2</version>
+                    <configuration>
+                        <environmentVariables>
+                            <REFRESH_TOKEN_HMAC_SECRET>test-only-not-a-real-secret-0123456789</REFRESH_TOKEN_HMAC_SECRET>
+                        </environmentVariables>
+                    </configuration>
+                </plugin>
+                <!-- Los tests de integración (`*IT`) no los ejecuta surefire, solo
+                     failsafe — y failsafe no estaba configurado. Consecuencia:
+                     PostgresSchemaProvisionerZonkyIT existía en el repo y nunca se
+                     ejecutó, ni con `mvn test` ni con `mvn verify`. Los AC de
+                     contención y de auditoría se verifican con tests de integración,
+                     así que sin esto no hay forma de evidenciarlos. -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                    <version>3.1.2</version>
+                    <configuration>
+                        <environmentVariables>
+                            <REFRESH_TOKEN_HMAC_SECRET>test-only-not-a-real-secret-0123456789</REFRESH_TOKEN_HMAC_SECRET>
+                        </environmentVariables>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>integration-test</goal>
+                                <goal>verify</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <!-- Produce el jar ejecutable que consume el Dockerfile (ADR-012).
+                     Sin esto `mvn package` deja un jar plano sin las dependencias
+                     y el contenedor no arranca. -->
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <version>${spring.boot.version}</version>
+                    <configuration>
+                        <!-- El jar ejecutable sale como artefacto secundario
+                             (`-exec.jar`) y el artefacto principal sigue siendo el jar
+                             plano. Sin el clasificador, `repackage` reemplaza el
+                             principal por el fat jar, cuyas clases viven bajo
+                             BOOT-INF/classes; failsafe pone ese jar en el classpath en
+                             lugar de target/classes y todo `*IT` muere con
+                             ClassNotFoundException sobre clases propias. -->
+                        <classifier>exec</classifier>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>repackage</goal>
+                            </goals>
+                        </execution>
+                    </executions>
                 </plugin>
             </plugins>
         </build>
