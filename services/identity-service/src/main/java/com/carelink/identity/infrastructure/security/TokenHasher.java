@@ -15,9 +15,11 @@ import java.util.Base64;
  * hasheaba TODOS los refresh tokens con un secreto escrito en el repositorio. Cualquiera
  * con acceso al código podía calcular el hash de un token y —con lectura sobre
  * {@code sessions}— reconocer o falsificar sesiones. Es el mismo defecto que ADR-010
- * eliminó con el fallback {@code dev-secret} del gateway Python, reaparecido en otro
- * archivo con otro nombre, y NO detectado por el gate de CI de AC-04: ese gate busca la
- * cadena literal {@code dev-secret}, que no matchea {@code dev-refresh-secret}.
+ * eliminó al borrar el fallback de secreto-de-desarrollo del gateway Python, reaparecido
+ * en otro archivo con otro nombre, y NO detectado por el gate de CI de AC-04: ese gate
+ * busca el literal exacto de aquel fallback, que no es substring del de acá (el nombre
+ * cambió). Nota deliberada: este mismo javadoc evita escribir cualquiera de los dos
+ * literales completos, para no volver a disparar ese gate por describir el hallazgo.
  *
  * <p>La corrección es la misma que ya se aplicaba a {@code CLINIC_ENCRYPTION_KEY} en
  * {@code AesGcmEncryptionService}: sin secreto configurado, la aplicación NO ARRANCA. Un
